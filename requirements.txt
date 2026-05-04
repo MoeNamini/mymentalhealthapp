@@ -1,0 +1,6 @@
+
+psycopg==3.2.1
+pgvector==0.3.2
+sqlalchemy==2.0.35
+ollama==0.3.3
+python-dotenv==1.0.1

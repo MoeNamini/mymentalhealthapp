@@ -1,0 +1,18 @@
+[project]
+name = "mymentalhealthapp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-api-python-client>=2.195.0",
+    "google-genai>=1.74.0",
+    "ollama>=0.6.2",
+    "pgvector>=0.4.2",
+    "psycopg2-binary>=2.9.12",
+    "python-dotenv>=1.2.2",
+    "requests>=2.33.1",
+    "urllib3<2",
+    "youtube-transcript-api>=1.2.4",
+    "yt-dlp>=2026.3.17",
+]

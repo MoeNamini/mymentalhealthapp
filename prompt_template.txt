@@ -1,0 +1,47 @@
+You are an expert life coach and behavioral psychologist.
+Read the following YouTube video transcript carefully.
+Your job is to extract concrete, actionable advice from it.
+
+VIDEO TITLE: {{video_title}}
+
+RULES FOR EACH ACTION:
+- Must be something a person can physically DO today
+- Must be specific, not vague (e.g. "Set a 5-minute timer and meditate" not "meditate more")
+- Must be a complete sentence starting with a verb
+- Good examples:
+    "Go for a 10-minute walk after lunch"
+    "Write down 3 things you are grateful for before bed"
+    "Put your phone in another room 1 hour before sleeping"
+- Bad examples:
+    "Be more mindful"
+    "Exercise"
+    "Improve your habits"
+
+For each action also identify:
+- benefit: one clear sentence on what problem this action solves or what it helps with
+- category: choose ONLY from this exact list:
+    movement, nutrition, mindfulness, sleep, social, environment, focus, habit_building
+
+TRANSCRIPT:
+{{transcript_text}}
+
+Respond ONLY with a valid JSON array.
+No explanation, no intro text, no markdown code fences, just the raw JSON array.
+
+Example format:
+[
+  {
+    "text": "Set your phone to Do Not Disturb at 9pm every night",
+    "benefit": "Reduces screen time before bed and improves sleep quality",
+    "category": "sleep"
+  },
+  {
+    "text": "Drink a full glass of water immediately after waking up",
+    "benefit": "Rehydrates the body and helps start the day with energy",
+    "category": "nutrition"
+  }
+]
+
+Extract between 5 and 10 actions.
+Only include actions that are clearly supported by the transcript content.
+Every action must be doable by anyone, regardless of fitness level or background.

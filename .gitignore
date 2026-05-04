@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+data/
+cookies.txt
+cookies_temp.txt
+main.py
+uv.lock
+.python-version
