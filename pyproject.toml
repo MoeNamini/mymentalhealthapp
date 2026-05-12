@@ -5,14 +5,21 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "bcrypt>=5.0.0",
+    "fastapi>=0.136.1",
     "google-api-python-client>=2.195.0",
     "google-genai>=1.74.0",
+    "httpx>=0.28.1",
     "ollama>=0.6.2",
+    "passlib[bcrypt]>=1.7.4",
     "pgvector>=0.4.2",
     "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.2",
+    "python-jose[cryptography]>=3.5.0",
+    "python-multipart>=0.0.27",
     "requests>=2.33.1",
     "urllib3<2",
+    "uvicorn>=0.46.0",
     "youtube-transcript-api>=1.2.4",
     "yt-dlp>=2026.3.17",
 ]
