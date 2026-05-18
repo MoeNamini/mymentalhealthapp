@@ -13,6 +13,7 @@ dependencies = [
     "ollama>=0.6.2",
     "passlib[bcrypt]>=1.7.4",
     "pgvector>=0.4.2",
+    "pillow>=12.2.0",
     "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.2",
     "python-jose[cryptography]>=3.5.0",

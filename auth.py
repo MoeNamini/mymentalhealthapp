@@ -379,9 +379,9 @@ async def update_theme(request: Request, user=Depends(get_current_user)):
     body = await request.json()  # Fixed — was using wrong sync pattern
     theme = body.get("theme")
 
-    if theme not in ("light", "dark", "soft"):
+    if theme not in ("light", "dark", "calm"):
         raise HTTPException(
-            status_code=400, detail="Theme must be light, dark, or soft"
+            status_code=400, detail="Theme must be light, dark, or calm"
         )
 
     conn = get_db()
