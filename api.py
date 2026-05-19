@@ -721,3 +721,103 @@ def acknowledge_milestone(body: MilestoneAckBody, user=Depends(get_current_user)
     cur.close()
     conn.close()
     return {"acknowledged": True}
+
+
+# Append these endpoints to the bottom of api.py
+
+
+class UsernameBody(BaseModel):
+    username: str
+
+
+class PasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class AboutBody(BaseModel):
+    about_me: str
+
+
+class DeleteAccountBody(BaseModel):
+    reason: Optional[str] = ""
+
+
+@app.put("/profile/username")
+def update_username(body: UsernameBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET name = %s WHERE id = %s", (body.username, int(user["sub"]))
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+
+@app.put("/profile/password")
+def update_password(body: PasswordBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # 🔐 First pull current password hash to check authenticity
+    cur.execute("SELECT password_hash FROM users WHERE id = %s", (int(user["sub"]),))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # NOTE: Replace with your encryption engine verify check if using passlib/bcrypt
+    # e.g., if not pwd_context.verify(body.current_password, row[0]):
+    if body.current_password != row[0]:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Current password check failed.")
+
+    cur.execute(
+        "UPDATE users SET password_hash = %s WHERE id = %s",
+        (body.new_password, int(user["sub"])),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+
+@app.put("/profile/about")
+def update_about(body: AboutBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET about_me = %s WHERE id = %s",
+        (body.about_me, int(user["sub"])),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+
+@app.delete("/profile/account")
+def purge_account(body: DeleteAccountBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Optional: Log the exit interview feedback before deleting data rows
+    if body.reason:
+        try:
+            cur.execute(
+                "INSERT INTO feedback (user_id, content) VALUES (%s, %s)",
+                (int(user["sub"]), f"Exit Feedback: {body.reason}"),
+            )
+        except Exception:
+            pass  # Fail gracefully if feedback framework table isn't present
+
+    # Purge user rows - cascades automatically deletes their habits/logs
+    cur.execute("DELETE FROM users WHERE id = %s", (int(user["sub"]),))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"purged": True}

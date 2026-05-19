@@ -1,13 +1,15 @@
 // App.jsx — complete
 // Changes in this version:
-// - Restored missing SearchPage component
-// - Includes Custom Action "+" button, Share Modals, Journal flows, and 10% larger fonts
-// - Includes Custom Scrollbars and Glassmorphic popups
+// - Restored the Avatar Circle in ProfilePage with routing to EditProfilePage
+// - App homepage defaults to ProfilePage upon login/refresh
+// - Removed "Back to" from ProfilePage's top left "Search" button
+// - Added full EditProfilePage (Account Settings) with email listed above username
+// - Retained all Share, Journal, and Custom Action features
 
 import { useState, useEffect, createContext, useContext } from "react"
 import axios from "axios"
 
-// ─── THEMES (Desaturated, Matte, Neumorphic) ──────────────────────────────────
+// ─── THEMES ───────────────────────────────────────────────────────────────────
 const THEMES = {
   calm: {
     bg: "#627D85", shadowDark: "#23454fff", shadowLight: "#a9c4cdff", text: "#4dc4b2ff", subtext: "#10a0bdff", accent: "#D0D4D0",
@@ -97,7 +99,7 @@ function LoginPage({ onNavigate }) {
       setupAxios(res.data.token)
       setToken(res.data.token)
       setUser(res.data.user)
-      onNavigate("search")
+      onNavigate("profile") // Default to profile upon login
     } catch (e) {
       setError(e.response?.data?.detail || "Something went wrong.")
     } finally { setLoading(false) }
@@ -153,7 +155,7 @@ function AuthCallback({ onNavigate }) {
       localStorage.setItem("user", JSON.stringify(res.data))
       setToken(token)
       setUser(res.data)
-      onNavigate("search")
+      onNavigate("profile") // Default to profile upon auth
     }).catch(() => onNavigate("login"))
   }, [])
   return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><p style={{ color: useApp().t.subtext, fontSize: 20 }}>Signing you in...</p></div>
@@ -676,7 +678,7 @@ function CatTag({ category }) {
   )
 }
 
-// ─── SEARCH PAGE COMPONENTS ───────────────────────────────────────────────────
+// ─── SEARCH PAGE ──────────────────────────────────────────────────────────────
 function SearchPage() {
   const { t, user, logout, searchQuery, setSearchQuery, activeCat, setActiveCat, setPage } = useApp()
   const [results, setResults] = useState([])
@@ -827,72 +829,6 @@ function ActionCard({ action }) {
   )
 }
 
-// ─── REMINDER LIST CARD ───────────────────────────────
-function ReminderListCard({ rem, onEditTrigger }) {
-  const { t } = useApp()
-  const [showReminder, setShowReminder] = useState(false)
-
-  let nextString = ""
-  if (rem.reminder_type === "widget") {
-    nextString = "Next reminder: click on widget"
-  } else if (rem.reminder_type === "time") {
-    const now = new Date()
-    const target = new Date()
-    let h = parseInt(rem.target_hour || "08")
-    if (rem.target_ampm === "PM" && h !== 12) h += 12
-    if (rem.target_ampm === "AM" && h === 12) h = 0
-    target.setHours(h, parseInt(rem.target_minute || "00"), 0, 0)
-    if (target <= now) target.setDate(target.getDate() + 1)
-
-    let nextH = target.getHours()
-    const nextAmPm = nextH >= 12 ? 'PM' : 'AM'
-    nextH = nextH % 12 || 12
-    const nextM = target.getMinutes().toString().padStart(2, '0')
-    nextString = `Next reminder: ${String(nextH).padStart(2, '0')}:${nextM} ${nextAmPm}`
-  }
-
-  return (
-    <>
-      <div className="neu-inset" style={{ padding: "30px 32px", marginBottom: 26, borderRadius: 22 }}>
-        <p style={{ fontSize: 22, fontWeight: 700, color: t.text, marginBottom: 24, lineHeight: 1.5 }}>{rem.text}</p>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div style={{ display: "flex", gap: 16 }}>
-            {rem.reminder_type === "time" ? (
-              <>
-                <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                  <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Time</span>
-                  <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}>{rem.target_hour}:{rem.target_minute} {rem.target_ampm}</span>
-                </button>
-                {rem.frequency_type && (
-                  <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Repeats</span>
-                    <span style={{ fontSize: 20, color: t.accent, fontWeight: 800 }}>{rem.frequency_value} {rem.frequency_type}(s)</span>
-                  </button>
-                )}
-              </>
-            ) : (
-              <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 28px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Type</span>
-                <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}>By Widget</span>
-              </button>
-            )}
-          </div>
-
-          {nextString && (
-            <div style={{ fontSize: 16, color: t.subtext, fontWeight: 700, fontStyle: "italic", paddingBottom: 8 }}>
-              {nextString}
-            </div>
-          )}
-
-        </div>
-      </div>
-
-      {showReminder && <ReminderModal action={{ id: rem.action_id, text: rem.text }} isEdit={true} onClose={() => setShowReminder(false)} onPickConfirmed={onEditTrigger} />}
-    </>
-  )
-}
-
 // ─── PROFILE COMPONENTS ───────────────────────────────────────────────────────
 function ProfilePage() {
   const { t, user, logout, setPage, setViewJournalIn } = useApp()
@@ -998,11 +934,22 @@ function ProfilePage() {
       <div style={{ padding: "46px 24px 34px" }}>
         <div style={{ maxWidth: 760, margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 44 }}>
-            <button className="neu-btn" onClick={() => setPage("search")} style={{ padding: "14px 24px", fontSize: 18 }}>Back to Search</button>
+            <button className="neu-btn" onClick={() => setPage("search")} style={{ padding: "14px 24px", fontSize: 18 }}>Search</button>
             <div style={{ display: "flex", gap: 16 }}>
               <button className="neu-btn" onClick={() => setPage("journal")} style={{ padding: "14px 24px", fontSize: 18 }}>Journal</button>
               <button className="neu-btn" onClick={logout} style={{ padding: "14px 24px", fontSize: 18 }}>Log out</button>
             </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 44 }}>
+            <div
+              className="neu-card"
+              onClick={() => setPage("edit-profile")}
+              style={{ width: 96, height: 96, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, fontWeight: 800, color: t.accent, marginBottom: 20, cursor: "pointer" }}
+            >
+              {user?.name?.[0]?.toUpperCase() || "U"}
+            </div>
+            <p style={{ color: t.text, fontWeight: 800, fontSize: 32, marginBottom: 6 }}>{user?.name}</p>
           </div>
 
           <div className="neu-inset" style={{ display: "flex", padding: 10, borderRadius: 20, maxWidth: 740, margin: "0 auto" }}>
@@ -1177,6 +1124,171 @@ function JournalPage() {
   )
 }
 
+function EditProfilePage() {
+  const { t, user, setUser, setPage, logout } = useApp()
+
+  const [username, setUsername] = useState(user?.name || "")
+  const [isEditingName, setIsEditingName] = useState(false)
+
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+
+  const [aboutText, setAboutText] = useState(user?.about_me || "")
+  const [showAboutModal, setShowAboutModal] = useState(false)
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteReason, setDeleteReason] = useState("")
+  const [errorMsg, setErrorMsg] = useState("")
+
+  async function saveUsername() {
+    if (!username.trim()) return
+    await axios.put("/api/profile/username", { username: username.trim() })
+    setUser({ ...user, name: username.trim() })
+    setIsEditingName(false)
+  }
+
+  async function savePassword() {
+    setErrorMsg("")
+    if (newPassword !== confirmPassword) { setErrorMsg("New passwords do not match."); return }
+    try {
+      await axios.put("/api/profile/password", { current_password: currentPassword, new_password: newPassword })
+      setShowPasswordModal(false)
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("")
+      alert("Password updated successfully!")
+    } catch (e) {
+      setErrorMsg(e.response?.data?.detail || "Password change failed.")
+    }
+  }
+
+  async function saveAboutMe() {
+    await axios.put("/api/profile/about", { about_me: aboutText.trim() })
+    setUser({ ...user, about_me: aboutText.trim() })
+    setShowAboutModal(false)
+  }
+
+  async function executeDeleteAccount() {
+    await axios.delete("/api/profile/account", { data: { reason: deleteReason.trim() } })
+    logout()
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", padding: "46px 24px 90px" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 44 }}>
+          <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18 }}>Back to Profile</button>
+          <span style={{ color: t.text, fontSize: 32, fontWeight: 800 }}>Account Settings</span>
+        </div>
+
+        <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>Identity</div>
+
+          <div style={{ marginBottom: 16, color: t.subtext, fontSize: 18 }}>
+            Email: <span style={{ color: t.text, fontWeight: 600 }}>{user?.email}</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, gap: 16 }}>
+            {isEditingName ? (
+              <div style={{ display: "flex", gap: 12, flex: 1 }}>
+                <input className="neu-input" value={username} onChange={e => setUsername(e.target.value)} style={{ flex: 1, padding: "10px 16px", fontSize: 18 }} />
+                <button className="neu-btn" onClick={saveUsername} style={{ padding: "10px 20px", fontSize: 16 }}>Save</button>
+              </div>
+            ) : (
+              <>
+                <span style={{ fontSize: 22, color: t.text, fontWeight: 600 }}>{user?.name}</span>
+                <button className="neu-btn" onClick={() => setIsEditingName(true)} style={{ padding: "10px 20px", fontSize: 16 }}>Edit Name</button>
+              </>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 18, color: t.subtext }}>Password parameters secure</span>
+            <button className="neu-btn" onClick={() => setShowPasswordModal(true)} style={{ padding: "10px 20px", fontSize: 16 }}>Change Password</button>
+          </div>
+        </div>
+
+        <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Subscription Membership</div>
+            <span style={{ fontSize: 24, fontWeight: 800, color: t.text, textTransform: "capitalize" }}>{user?.tier || "Free"} Account</span>
+          </div>
+          {(user?.tier === "free" || !user?.tier) && (
+            <button className="neu-btn neu-btn-primary" style={{ padding: "14px 28px", fontSize: 18 }}>Upgrade Tier</button>
+          )}
+        </div>
+
+        <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 44 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>About Me</div>
+            {user?.about_me && <button className="neu-btn" onClick={() => setShowAboutModal(true)} style={{ padding: "8px 16px", fontSize: 15 }}>Edit Text</button>}
+          </div>
+
+          {!user?.about_me ? (
+            <div onClick={() => setShowAboutModal(true)} style={{ cursor: "pointer", fontSize: 19, color: t.placeholder, fontStyle: "italic", lineHeight: 1.6, padding: "12px 16px" }}>
+              "Write about yourself, how you feel, the pressures you're under from work or life, your habits, preferences, anything that might give us a better understanding of you."
+            </div>
+          ) : (
+            <p style={{ fontSize: 21, color: t.text, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{user?.about_me}</p>
+          )}
+        </div>
+
+        <div style={{ textAlign: "center" }}>
+          <button className="neu-btn" onClick={() => setShowDeleteModal(true)} style={{ padding: "16px 32px", fontSize: 18, color: "#c94c4c" }}>Delete Account</button>
+        </div>
+
+      </div>
+
+      {showPasswordModal && (
+        <div className="glass-modal">
+          <div className="neu-card" style={{ padding: 40, maxWidth: 440, width: "100%" }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: t.text, marginBottom: 18 }}>Change Password</div>
+            {errorMsg && <p style={{ color: "#c94c4c", fontSize: 16, marginBottom: 14 }}>{errorMsg}</p>}
+            <label className="input-label">Current Password</label>
+            <input type="password" className="neu-input" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} style={{ width: "100%", padding: 14, marginBottom: 14 }} />
+            <label className="input-label">New Password</label>
+            <input type="password" className="neu-input" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={{ width: "100%", padding: 14, marginBottom: 14 }} />
+            <label className="input-label">Re-enter New Password</label>
+            <input type="password" className="neu-input" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={{ width: "100%", padding: 14, marginBottom: 28 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <button className="neu-btn neu-btn-primary" onClick={savePassword} style={{ padding: 14, fontSize: 18 }}>Update Password</button>
+              <button className="neu-btn" onClick={() => { setShowPasswordModal(false); setErrorMsg(""); }} style={{ padding: 14, fontSize: 18 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAboutModal && (
+        <div className="glass-modal">
+          <div className="neu-card" style={{ padding: 40, maxWidth: 520, width: "100%" }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: t.text, marginBottom: 14 }}>About Me</div>
+            <textarea className="neu-input" value={aboutText} onChange={e => setAboutText(e.target.value)} rows={6} placeholder="Write about yourself..." style={{ width: "100%", padding: 18, fontSize: 18, marginBottom: 26, resize: "vertical" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <button className="neu-btn neu-btn-primary" onClick={saveAboutMe} style={{ padding: 14, fontSize: 18 }}>Save Summary</button>
+              <button className="neu-btn" onClick={() => setShowAboutModal(false)} style={{ padding: 14, fontSize: 18 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="glass-modal">
+          <div className="neu-card" style={{ padding: 40, maxWidth: 480, width: "100%", textAlign: "center" }}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: "#c94c4c", marginBottom: 12 }}>Are you sure?</div>
+            <div style={{ fontSize: 18, color: t.subtext, marginBottom: 24, lineHeight: 1.6 }}>Can you be kind enough to tell us why or how we can get better?</div>
+            <textarea className="neu-input" value={deleteReason} onChange={e => setDeleteReason(e.target.value)} rows={3} placeholder="Tell us how we can improve..." style={{ width: "100%", padding: 16, fontSize: 17, marginBottom: 32, resize: "none" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <button className="neu-btn" onClick={executeDeleteAccount} style={{ padding: 16, fontSize: 18, backgroundColor: "#c94c4c", color: "#fff" }}>Permanently Delete Account</button>
+              <button className="neu-btn" onClick={() => setShowDeleteModal(false)} style={{ padding: 14, fontSize: 18 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ThemePicker() {
   const { themeName, setThemeName, t } = useApp()
   return (
@@ -1258,7 +1370,7 @@ export default function App() {
       }).catch(() => { })
     }
     if (window.location.pathname.startsWith("/auth/callback")) { setPage("callback"); return }
-    setPage(user && token ? "search" : "login")
+    setPage(user && token ? "profile" : "login")
     return () => clearInterval(shadowInterval)
   }, [token])
 
@@ -1270,6 +1382,7 @@ export default function App() {
     if (!user || !token) return <LoginPage onNavigate={setPage} />
     if (page === "profile") return <ProfilePage />
     if (page === "journal") return <JournalPage />
+    if (page === "edit-profile") return <EditProfilePage />
     return <SearchPage />
   }
 
