@@ -30,14 +30,16 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 oauth_states: dict = {}
 
 
-def get_db():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-    )
+def get_db_connection():
+    database_url = os.getenv("DATABASE_URL")
+    
+    if not database_url:
+        raise HTTPException(
+            status_code=500, 
+            detail="DATABASE_URL is missing from environment variables!"
+        )
+        
+    return psycopg2.connect(database_url)
 
 
 def make_jwt(user_id: int, email: str, name: str) -> str:

@@ -12,7 +12,14 @@ from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
 from typing import Optional
 
-load_dotenv()
+import google.generativeai as genai
+import json
+import datetime
+
+from pathlib import Path
+
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path)
 security = HTTPBearer()
 
 app = FastAPI(title="Mental Health Actions API", version="1.0.0")
@@ -27,13 +34,17 @@ app.include_router(auth_router)
 
 
 def get_db_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-    )
+    # We grab the raw URL string we just fixed in the .env file
+    database_url = os.getenv("DATABASE_URL")
+
+    if not database_url:
+        raise HTTPException(
+            status_code=500, 
+            detail="DATABASE_URL is missing from environment variables!"
+        )
+    
+    # We pass that single string directly into psycopg2
+    return psycopg2.connect(database_url)
 
 
 class RatingRequest(BaseModel):
@@ -173,6 +184,21 @@ def create_custom_action(body: CustomActionBody, user=Depends(get_current_user))
     cur.close()
     conn.close()
     return {"action_id": action_id}
+
+
+class UpgradeBody(BaseModel):
+    tier: str
+
+@app.post("/profile/upgrade")
+def upgrade_tier(body: UpgradeBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # Update the user's tier in the database
+    cur.execute("UPDATE users SET tier = %s WHERE id = %s", (body.tier, int(user["sub"])))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True, "tier": body.tier}
 
 
 @app.post("/profile/actions/{action_id}/pick")
@@ -924,3 +950,99 @@ def get_moods(user=Depends(get_current_user)):
     cur.close()
     conn.close()
     return {"moods": [{"mood": r[0], "date": r[1].isoformat()} for r in rows]}
+
+
+
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+
+@app.get("/profile/ai-coach")
+def get_ai_coach_insights(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_id = int(user["sub"])
+
+    # 1. Gather User Identity, Tier, and AI Usage
+    cur.execute("SELECT name, about_me, closing_time, tier, ai_count, last_ai_date FROM users WHERE id = %s", (user_id,))
+    u_row = cur.fetchone()
+    
+    if not u_row:
+        cur.close()
+        conn.close()
+        return {"success": False, "error": "User not found."}
+
+    user_data = {"name": u_row[0], "about_me": u_row[1], "closing_time": u_row[2]}
+    tier = u_row[3] or "free"
+    ai_count = u_row[4] or 0
+    last_ai_date = u_row[5]
+
+    # 2. Rate Limiting Logic (3 uses per day)
+    today = datetime.date.today()
+    if last_ai_date != today:
+        ai_count = 0  # Reset the count if it's a new day
+
+    if tier in ["free", "paid"] and ai_count >= 3:
+        cur.close()
+        conn.close()
+        return {"success": False, "error": "You have reached your limit of 3 AI reports today. Try again tomorrow or upgrade!"}
+
+    # 3. Dynamic Model Routing
+    if tier == "pro":
+        # Pro users get the absolute smartest, most advanced model available
+        model_id = 'gemini-3.5-pro'
+    else:
+        # Free and Paid users get the lightning-fast, highly cost-effective model
+        model_id = 'gemini-3.5-flash'
+
+    # 4. Gather the Context
+    cur.execute("SELECT text, benefit, times_completed FROM actions WHERE user_id = %s AND is_active = TRUE", (user_id,))
+    actions = [{"action": r[0], "why": r[1], "completions": r[2]} for r in cur.fetchall()]
+
+    cur.execute("SELECT mood_state, created_at FROM mood_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 14", (user_id,))
+    moods = [{"mood": r[0], "date": r[1].isoformat()} for r in cur.fetchall()]
+
+    cur.execute("SELECT type, action_text, content, created_at FROM action_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 20", (user_id,))
+    journals = [{"type": r[0], "action": r[1], "content": r[2], "date": r[3].isoformat()} for r in cur.fetchall()]
+
+    full_context = {
+        "user_profile": user_data,
+        "active_actions": actions,
+        "recent_moods": moods,
+        "recent_journals_and_misses": journals
+    }
+
+    system_prompt = f"""
+    You are an empathetic, highly analytical behavioral wellness coach. 
+    Here is the complete data dump of the user's recent history:
+    {json.dumps(full_context)}
+
+    Provide your response STRICTLY as a raw JSON object using this exact schema:
+    {{
+      "acknowledgment": "A warm, empathetic message validating their recent feelings. Mention their name.",
+      "action_insights": "Analysis of how their specific actions correlate with their mood.",
+      "structural_suggestions": "Specific, actionable advice.",
+      "encouragement": "A closing uplifting thought."
+    }}
+    """
+
+    try:
+        # Initialize the specific model dynamically assigned above
+        model = genai.GenerativeModel(model_id)
+        response = model.generate_content(
+            system_prompt,
+            generation_config=genai.GenerationConfig(response_mime_type="application/json")
+        )
+        ai_response = json.loads(response.text)
+        
+        # 5. Success! Update the database to consume 1 of their daily uses
+        cur.execute("UPDATE users SET ai_count = %s, last_ai_date = %s WHERE id = %s", (ai_count + 1, today, user_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {"success": True, "data": ai_response}
+        
+    except Exception as e:
+        cur.close()
+        conn.close()
+        print(f"Gemini API Error: {e}")
+        return {"success": False, "error": "AI service is currently unavailable."}
