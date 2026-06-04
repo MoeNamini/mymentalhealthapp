@@ -48,6 +48,7 @@ class MilestoneAckBody(BaseModel):
 class JournalBody(BaseModel):
     action_id: Optional[int] = None
     content: str
+    custom_title: Optional[str] = None
 
 
 class JournalUpdateBody(BaseModel):
@@ -68,6 +69,12 @@ class ReviewBody(BaseModel):
 class FeedbackBody(BaseModel):
     content: str
 
+class DifficultyBody(BaseModel):
+    difficulty: str
+
+class CompleteBody(BaseModel):
+    source: str = "manual"
+    difficulty: Optional[str] = "medium"
 
 @app.get("/")
 def root():
@@ -168,21 +175,18 @@ def create_custom_action(body: CustomActionBody, user=Depends(get_current_user))
     return {"action_id": action_id}
 
 
-@app.post("/actions/{action_id}/pick")
-def pick_action(action_id: int):
+@app.post("/profile/actions/{action_id}/pick")
+def pick_action(action_id: int, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE actions SET times_picked = times_picked + 1 WHERE id = %s AND is_active = TRUE RETURNING times_picked;",
-        (action_id,),
-    )
-    result = cur.fetchone()
+    # 1. Increment global times picked
+    cur.execute("UPDATE actions SET times_picked = times_picked + 1 WHERE id = %s AND is_active = TRUE", (action_id,))
+    # 2. Add the action to the user's active profile!
+    cur.execute("INSERT INTO user_actions (user_id, action_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;", (int(user["sub"]), action_id))
     conn.commit()
     cur.close()
     conn.close()
-    if not result:
-        raise HTTPException(status_code=404)
-    return {"action_id": action_id, "times_picked": result[0]}
+    return {"action_id": action_id, "picked": True}
 
 
 @app.post("/actions/{action_id}/complete")
@@ -278,17 +282,50 @@ def post_feedback(body: FeedbackBody, user=Depends(get_current_user)):
 
 
 @app.get("/profile/actions")
+@app.get("/profile/actions")
 def get_my_actions(user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        """
+    
+    # --- LAZY CRON: AUTO-FINISH EXPIRED ACTIONS ---
+    # Wrapped in a try/except block so it NEVER crashes your dashboard!
+    try:
+        cur.execute("""
+            WITH expired AS (
+                SELECT ua.user_id, ua.action_id
+                FROM user_actions ua
+                JOIN reminders r ON ua.action_id = r.action_id AND ua.user_id = r.user_id
+                WHERE r.end_in_days IS NOT NULL 
+                AND CURRENT_DATE >= (DATE(ua.picked_at) + r.end_in_days * INTERVAL '1 day')
+                AND ua.is_active = TRUE
+                AND ua.user_id = %s
+            )
+            UPDATE user_actions SET is_active = FALSE 
+            WHERE (user_id, action_id) IN (SELECT user_id, action_id FROM expired);
+        """, (int(user["sub"]),))
+        
+        cur.execute("""
+            DELETE FROM reminders 
+            WHERE (user_id, action_id) IN (
+                SELECT ua.user_id, ua.action_id FROM user_actions ua
+                JOIN reminders r ON ua.action_id = r.action_id AND ua.user_id = r.user_id
+                WHERE r.end_in_days IS NOT NULL 
+                AND CURRENT_DATE >= (DATE(ua.picked_at) + r.end_in_days * INTERVAL '1 day')
+                AND ua.is_active = FALSE AND ua.user_id = %s
+            )
+        """, (int(user["sub"]),))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Lazy cron skipped to prevent crash: {e}")
+    # ----------------------------------------------
+
+    cur.execute("""
         SELECT a.id, a.text, a.benefit, a.category, a.difficulty, a.times_picked, a.times_completed, a.total_rating_points, a.rating_count, v.url, v.title, v.youtube_id, ua.picked_at, ua.is_active
         FROM user_actions ua JOIN actions a ON a.id = ua.action_id LEFT JOIN videos v ON v.id = a.video_id
         WHERE ua.user_id = %s ORDER BY ua.picked_at DESC;
-    """,
-        (int(user["sub"]),),
-    )
+    """, (int(user["sub"]),))
+    
     columns = [d[0] for d in cur.description]
     rows = cur.fetchall()
     cur.close()
@@ -296,29 +333,20 @@ def get_my_actions(user=Depends(get_current_user)):
     results = []
     for row in rows:
         item = dict(zip(columns, row))
-        item["avg_rating"] = (
-            round(item["total_rating_points"] / item["rating_count"], 2)
-            if item["rating_count"]
-            else 0.0
-        )
-        item["embed_url"] = (
-            f"https://www.youtube.com/embed/{item['youtube_id']}"
-            if item.get("youtube_id")
-            else None
-        )
+        item["avg_rating"] = round(item["total_rating_points"] / item["rating_count"], 2) if item["rating_count"] else 0.0
+        item["embed_url"] = f"https://www.youtube.com/embed/{item['youtube_id']}" if item.get("youtube_id") else None
         item["picked_at"] = item["picked_at"].isoformat()
         results.append(item)
     return {"actions": results, "count": len(results)}
-
 
 @app.post("/profile/actions/{action_id}/finish")
 def finish_action(action_id: int, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE user_actions SET is_active = FALSE WHERE user_id = %s AND action_id = %s",
-        (int(user["sub"]), action_id),
-    )
+    # Mark the action as completed
+    cur.execute("UPDATE user_actions SET is_active = FALSE WHERE user_id = %s AND action_id = %s", (int(user["sub"]), action_id))
+    # DELETE the ghost reminder so it stops buzzing!
+    cur.execute("DELETE FROM reminders WHERE user_id = %s AND action_id = %s", (int(user["sub"]), action_id))
     conn.commit()
     cur.close()
     conn.close()
@@ -460,7 +488,7 @@ def get_reminder(action_id: int, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT reminder_type, frequency_type, frequency_value, target_hour, target_minute, target_ampm FROM reminders WHERE user_id = %s AND action_id = %s",
+        "SELECT reminder_type, frequency_type, frequency_value, target_hour, target_minute, target_ampm, end_in_days FROM reminders WHERE user_id = %s AND action_id = %s",
         (int(user["sub"]), action_id),
     )
     row = cur.fetchone()
@@ -476,8 +504,8 @@ def get_reminder(action_id: int, user=Depends(get_current_user)):
         "target_hour": row[3],
         "target_minute": row[4],
         "target_ampm": row[5],
+        "end_in_days": row[6]
     }
-
 
 @app.post("/profile/reminder")
 async def save_reminder(request: Request, user=Depends(get_current_user)):
@@ -489,7 +517,8 @@ async def save_reminder(request: Request, user=Depends(get_current_user)):
         (int(user["sub"]), body["action_id"]),
     )
     cur.execute(
-        "INSERT INTO reminders (user_id, action_id, reminder_type, frequency_type, frequency_value, target_hour, target_minute, target_ampm) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;",
+        """INSERT INTO reminders (user_id, action_id, reminder_type, frequency_type, frequency_value, target_hour, target_minute, target_ampm, end_in_days) 
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;""",
         (
             int(user["sub"]),
             body["action_id"],
@@ -499,6 +528,7 @@ async def save_reminder(request: Request, user=Depends(get_current_user)):
             body.get("target_hour", "08"),
             body.get("target_minute", "00"),
             body.get("target_ampm", "AM"),
+            body.get("end_in_days") # Captures the End In toggle
         ),
     )
     reminder_id = cur.fetchone()[0]
@@ -525,44 +555,32 @@ def delete_reminder(action_id: int, user=Depends(get_current_user)):
 @app.get("/profile/reminders")
 def get_all_reminders(user=Depends(get_current_user)):
     from datetime import date, timedelta
-
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT r.action_id, r.reminder_type, r.frequency_type, r.frequency_value, r.target_hour, r.target_minute, r.target_ampm, a.text FROM reminders r JOIN actions a ON a.id = r.action_id WHERE r.user_id = %s",
-        (int(user["sub"]),),
-    )
+    
+    # Modified SQL: Now strictly checks if user_actions.is_active = TRUE
+    cur.execute("""
+        SELECT r.action_id, r.reminder_type, r.frequency_type, r.frequency_value, 
+               r.target_hour, r.target_minute, r.target_ampm, a.text 
+        FROM reminders r 
+        JOIN actions a ON a.id = r.action_id 
+        JOIN user_actions ua ON ua.action_id = r.action_id AND ua.user_id = r.user_id
+        WHERE r.user_id = %s AND ua.is_active = TRUE
+    """, (int(user["sub"]),))
     rows = cur.fetchall()
-
+    
     results = []
     for r in rows:
         act_id = r[0]
-        cur.execute(
-            "SELECT DATE(completed_at) FROM completion_logs WHERE user_id = %s AND action_id = %s ORDER BY DATE(completed_at) DESC",
-            (int(user["sub"]), act_id),
-        )
+        cur.execute("SELECT DATE(completed_at) FROM completion_logs WHERE user_id = %s AND action_id = %s ORDER BY DATE(completed_at) DESC", (int(user["sub"]), act_id))
         c_days = sorted(set(row[0] for row in cur.fetchall()), reverse=True)
         streak = 0
         today = date.today()
         for i, day in enumerate(c_days):
-            if day == today - timedelta(days=i):
-                streak += 1
-            else:
-                break
-        results.append(
-            {
-                "action_id": act_id,
-                "reminder_type": r[1],
-                "frequency_type": r[2],
-                "frequency_value": r[3],
-                "target_hour": r[4],
-                "target_minute": r[5],
-                "target_ampm": r[6],
-                "text": r[7],
-                "streak": streak,
-            }
-        )
-
+            if day == today - timedelta(days=i): streak += 1
+            else: break
+        results.append({"action_id": act_id, "reminder_type": r[1], "frequency_type": r[2], "frequency_value": r[3], "target_hour": r[4], "target_minute": r[5], "target_ampm": r[6], "text": r[7], "streak": streak})
+        
     cur.close()
     conn.close()
     return {"reminders": results}
@@ -587,10 +605,8 @@ async def log_missed(request: Request, user=Depends(get_current_user)):
 async def save_journal(body: JournalBody, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO journal_logs (user_id, action_id, content) VALUES (%s, %s, %s) RETURNING id;",
-        (int(user["sub"]), body.action_id, body.content),
-    )
+    cur.execute("INSERT INTO journal_logs (user_id, action_id, content, custom_title) VALUES (%s, %s, %s, %s) RETURNING id;", 
+                (int(user["sub"]), body.action_id, body.content, body.custom_title))
     conn.commit()
     cur.close()
     conn.close()
@@ -643,35 +659,18 @@ def delete_journal(log_id: int, type: str, user=Depends(get_current_user)):
 def get_journal(user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT 'journal' as type, j.id, j.action_id, a.text as action_text, j.content, j.created_at
+    cur.execute("""
+        SELECT 'journal' as type, j.id, j.action_id, COALESCE(a.text, j.custom_title, 'General Thoughts') as action_text, j.content, j.created_at
         FROM journal_logs j LEFT JOIN actions a ON j.action_id = a.id WHERE j.user_id = %s
         UNION ALL
         SELECT 'missed' as type, m.id, m.action_id, a.text as action_text, m.response as content, m.created_at
         FROM missed_logs m JOIN actions a ON m.action_id = a.id WHERE m.user_id = %s AND m.response != ''
         ORDER BY created_at DESC;
-    """,
-        (int(user["sub"]), int(user["sub"])),
-    )
+    """, (int(user["sub"]), int(user["sub"])))
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return {
-        "journal": [
-            {
-                "type": r[0],
-                "id": r[1],
-                "action_id": r[2],
-                "action_text": r[3] or "General Thoughts",
-                "content": r[4],
-                "created_at": r[5].isoformat()
-                if hasattr(r[5], "isoformat")
-                else str(r[5]),
-            }
-            for r in rows
-        ]
-    }
+    return {"journal": [{"type": r[0], "id": r[1], "action_id": r[2], "action_text": r[3], "content": r[4], "created_at": r[5].isoformat() if hasattr(r[5], 'isoformat') else str(r[5])} for r in rows]}
 
 
 @app.get("/profile/milestones/{action_id}")
@@ -821,3 +820,107 @@ def purge_account(body: DeleteAccountBody, user=Depends(get_current_user)):
     cur.close()
     conn.close()
     return {"purged": True}
+
+
+@app.post("/profile/actions/{action_id}/complete")
+def complete_action(action_id: int, body: CompleteBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # Safely logs the completion with the default medium difficulty so the circle lights up!
+    cur.execute("""
+        INSERT INTO completion_logs (user_id, action_id, source, difficulty) 
+        VALUES (%s, %s, %s, %s) RETURNING id
+    """, (int(user["sub"]), action_id, body.source, body.difficulty))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+@app.get("/profile/actions/{action_id}/report")
+def get_action_report(action_id: int, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # 1. Grab Difficulty History for the Chart
+    cur.execute("""
+        SELECT completed_at, difficulty FROM completion_logs 
+        WHERE user_id = %s AND action_id = %s AND difficulty IS NOT NULL
+        ORDER BY completed_at ASC
+    """, (int(user["sub"]), action_id))
+    history = [{"date": r[0].isoformat() if hasattr(r[0], 'isoformat') else str(r[0]), "difficulty": r[1]} for r in cur.fetchall()]
+    
+    # 2. Grab Missed/Friction Reasons
+    cur.execute("""
+        SELECT created_at, response FROM missed_logs 
+        WHERE user_id = %s AND action_id = %s AND response != ''
+        ORDER BY created_at DESC
+    """, (int(user["sub"]), action_id))
+    reasons = [{"date": r[0].isoformat() if hasattr(r[0], 'isoformat') else str(r[0]), "reason": r[1]} for r in cur.fetchall()]
+    
+    # 3. Grab Journal Entries
+    cur.execute("""
+        SELECT created_at, content FROM journal_logs 
+        WHERE user_id = %s AND action_id = %s
+        ORDER BY created_at DESC
+    """, (int(user["sub"]), action_id))
+    journals = [{"date": r[0].isoformat() if hasattr(r[0], 'isoformat') else str(r[0]), "content": r[1]} for r in cur.fetchall()]
+    
+    cur.close()
+    conn.close()
+    
+    return {"history": history, "reasons": reasons, "journals": journals}
+
+    # --- PHASE 2 MODELS ---
+class ClosingTimeBody(BaseModel):
+    closing_time: str
+
+class MoodBody(BaseModel):
+    mood_state: str
+
+# --- PHASE 2 ENDPOINTS ---
+@app.put("/profile/closing_time")
+def update_closing_time(body: ClosingTimeBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET closing_time = %s WHERE id = %s", (body.closing_time, int(user["sub"])))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True, "closing_time": body.closing_time}
+
+@app.get("/profile/settings")
+def get_user_settings(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT closing_time FROM users WHERE id = %s", (int(user["sub"]),))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return {"closing_time": row[0] if row and row[0] else "20:00"}
+
+@app.post("/profile/mood")
+def log_mood(body: MoodBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO mood_logs (user_id, mood_state) VALUES (%s, %s) RETURNING id;",
+        (int(user["sub"]), body.mood_state)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"logged": True}
+
+@app.get("/profile/mood")
+def get_moods(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # Fetch mood history for the charting engine
+    cur.execute("""
+        SELECT mood_state, created_at FROM mood_logs 
+        WHERE user_id = %s ORDER BY created_at ASC
+    """, (int(user["sub"]),))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return {"moods": [{"mood": r[0], "date": r[1].isoformat()} for r in rows]}
