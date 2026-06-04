@@ -26,7 +26,11 @@ app = FastAPI(title="Mental Health Actions API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",                 # Allows you to test safely on your computer
+        "https://mymentalhealthapp.vercel.app"   # Your official live production app
+    ],
+    allow_credentials=True,                      # Highly recommended for secure login tokens
     allow_methods=["*"],
     allow_headers=["*"],
 )
