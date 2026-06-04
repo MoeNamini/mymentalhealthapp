@@ -78,7 +78,7 @@ def find_or_create_oauth_user(
     Looks up a user by email. Creates them if they don't exist.
     Returns the user row as a dict.
     """
-    conn = get_db()
+    conn = get_db_connection()
     cur = conn.cursor()
 
     cur.execute("SELECT id, name, email, theme FROM users WHERE email = %s", (email,))
@@ -126,7 +126,7 @@ class LoginRequest(BaseModel):
 
 @router.post("/signup")
 def signup(body: SignupRequest):
-    conn = get_db()
+    conn = get_db_connection()
     cur = conn.cursor()
 
     cur.execute("SELECT id FROM users WHERE email = %s", (body.email,))
@@ -158,7 +158,7 @@ def signup(body: SignupRequest):
 
 @router.post("/login")
 def login(body: LoginRequest):
-    conn = get_db()
+    conn = get_db_connection()
     cur = conn.cursor()
 
     cur.execute(
@@ -343,7 +343,7 @@ async def twitter_callback(code: str, state: str):
 
 @router.get("/me")
 def get_me(user=Depends(get_current_user)):
-    conn = get_db()
+    conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
         """
@@ -386,7 +386,7 @@ async def update_theme(request: Request, user=Depends(get_current_user)):
             status_code=400, detail="Theme must be light, dark, or calm"
         )
 
-    conn = get_db()
+    conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("UPDATE users SET theme = %s WHERE id = %s", (theme, int(user["sub"])))
     conn.commit()
