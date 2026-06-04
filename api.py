@@ -26,7 +26,9 @@ app = FastAPI(title="Mental Health Actions API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173",
+                "https://mindactions.vercel.app" # ADD YOUR REAL VERCEL URL HERE!
+                ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
