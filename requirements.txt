@@ -3,7 +3,14 @@ pgvector==0.4.2
 sqlalchemy==2.0.35
 ollama==0.6.2
 python-dotenv==1.2.2
+
+
+
+pydantic
 fastapi
 uvicorn
 google-generativeai
-pydantic
+python-dotenv
+python-jose
+bcrypt
+httpx
