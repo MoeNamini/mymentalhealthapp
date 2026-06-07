@@ -2551,7 +2551,7 @@ function EditProfilePage() {
           {/* Left Side: Theme & Back Button strictly next to each other */}
           <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
             <GlobalThemePicker />
-            <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18 }}>
+            <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18, marginLeft: "128px" }}>
               Back to Profile
             </button>
           </div>
@@ -2617,18 +2617,7 @@ function EditProfilePage() {
             </div>
           </div>
 
-          {/* ─── 🟢 SUBSCRIPTION BOX: UPGRADE BUTTON RESTORED ─── */}
-          <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Subscription Membership</div>
-              <span style={{ fontSize: 24, fontWeight: 800, color: t.text, textTransform: "capitalize" }}>{liveTier} Account</span>
-            </div>
 
-            {/* The condition hiding the button has been removed so it is always visible */}
-            <button className="neu-btn neu-btn-primary" onClick={() => setShowUpgradeModal(true)} style={{ padding: "14px 28px", fontSize: 18 }}>
-              Change Tier
-            </button>
-          </div>
 
           <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
