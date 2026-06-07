@@ -18,6 +18,10 @@ import datetime
 
 from pathlib import Path
 
+import base64
+from google.genai import types
+
+
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 security = HTTPBearer()
@@ -74,6 +78,10 @@ class JournalUpdateBody(BaseModel):
 class CustomActionBody(BaseModel):
     text: str
     benefit: str
+    # 🟢 NEW: Added optional fields to match your table schema
+    spotify_uri: Optional[str] = None
+    spotify_name: Optional[str] = None
+    spotify_type: Optional[str] = None
 
 
 class ReviewBody(BaseModel):
@@ -90,6 +98,10 @@ class DifficultyBody(BaseModel):
 class CompleteBody(BaseModel):
     source: str = "manual"
     difficulty: Optional[str] = "medium"
+
+class VoiceBody(BaseModel):
+    audio_b64: str
+    mime_type: str = "audio/webm"
 
 @app.get("/")
 def root():
@@ -155,6 +167,69 @@ def search(
         }
 
 
+@app.get("/search/ai")
+def ai_enhanced_search(
+    q: str = Query(..., description="The user's search query"),
+    category: str = Query(None, description="Optional category filter"),
+    user=Depends(get_current_user)
+):
+    if not q.strip():
+        return {"query": q, "count": 0, "results": []}
+
+    # 1. Ask Gemini 2.5 Flash Lite to extract the real intent and write 3 queries
+    system_prompt = f"""
+    The user is searching for mental health or habit-building actions regarding: "{q}"
+    Understand their core emotional intent and the real underlying problem. 
+    Generate EXACTLY 3 distinct, highly optimized search phrases (3-7 words each) to fetch the best coping mechanisms from a vector database.
+    Return ONLY a raw JSON array of 3 strings. Do not include markdown formatting.
+    Example: ["reduce anxiety and panic fast", "breathing exercises for stress relief", "cognitive reframing techniques"]
+    """
+    
+    try:
+        # 🟢 Using the ultra-fast, cheap model from your list
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        response = model.generate_content(
+            system_prompt,
+            generation_config=genai.GenerationConfig(response_mime_type="application/json")
+        )
+        prompts = json.loads(response.text)
+        
+        # Fallback just in case Gemini gets confused
+        if not isinstance(prompts, list):
+            prompts = [q]
+            
+    except Exception as e:
+        print(f"❌ Gemini API Error in AI Search: {e}")
+        return {"query": q, "count": 0, "results": [], "error": "AI query generation failed. Check backend terminal."}
+
+    # 2. Execute vector search for ALL 3 prompts!
+    all_results = {}
+    for prompt in prompts[:3]:  # Strictly limit to the 3 generated prompts
+        try:
+            # We fetch 8 actions per prompt (Max 24 total actions)
+            results = search_actions(query_text=prompt, limit=8, category_filter=category)
+            for res in results:
+                if res['id'] not in all_results:
+                    all_results[res['id']] = res
+                else:
+                    # If multiple AI queries found the SAME action, boost its relevance score!
+                    all_results[res['id']]['final_score'] += 0.05
+        except Exception as e:
+            print(f"❌ Search Engine error for prompt '{prompt}': {e}")
+            continue
+            
+    # 3. Sort final aggregated results by their boosted semantic/popularity scores
+    final_list = list(all_results.values())
+    final_list.sort(key=lambda x: x['final_score'], reverse=True)
+    
+    return {
+        "query": q, 
+        "prompts_used": prompts,  # Sends the 3 AI prompts back to the frontend so you can see what it searched for!
+        "count": len(final_list), 
+        "results": final_list
+    }
+
+
 @app.get("/categories")
 def get_categories():
     conn = get_db_connection()
@@ -172,14 +247,17 @@ def get_categories():
 def create_custom_action(body: CustomActionBody, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
+    
+    # 🟢 Insert the custom action including Spotify metadata
     cur.execute(
         """
-        INSERT INTO actions (text, benefit, category, difficulty, times_picked, is_active)
-        VALUES (%s, %s, 'Customized', 3, 1, TRUE) RETURNING id;
-    """,
-        (body.text, body.benefit),
+        INSERT INTO actions (text, benefit, category, difficulty, times_picked, is_active, spotify_uri, spotify_name, spotify_type)
+        VALUES (%s, %s, 'Customized', 3, 1, TRUE, %s, %s, %s) RETURNING id;
+        """,
+        (body.text, body.benefit, body.spotify_uri, body.spotify_name, body.spotify_type),
     )
     action_id = cur.fetchone()[0]
+    
     cur.execute(
         "INSERT INTO user_actions (user_id, action_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
         (int(user["sub"]), action_id),
@@ -311,7 +389,6 @@ def post_feedback(body: FeedbackBody, user=Depends(get_current_user)):
     return {"success": True}
 
 
-@app.get("/profile/actions")
 @app.get("/profile/actions")
 def get_my_actions(user=Depends(get_current_user)):
     conn = get_db_connection()
@@ -518,7 +595,9 @@ def get_reminder(action_id: int, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT reminder_type, frequency_type, frequency_value, target_hour, target_minute, target_ampm, end_in_days FROM reminders WHERE user_id = %s AND action_id = %s",
+        """SELECT reminder_type, frequency_type, frequency_value, target_hour, 
+                  target_minute, target_ampm, end_in_days, loc_condition, loc_lat, loc_lng 
+           FROM reminders WHERE user_id = %s AND action_id = %s""",
         (int(user["sub"]), action_id),
     )
     row = cur.fetchone()
@@ -534,7 +613,10 @@ def get_reminder(action_id: int, user=Depends(get_current_user)):
         "target_hour": row[3],
         "target_minute": row[4],
         "target_ampm": row[5],
-        "end_in_days": row[6]
+        "end_in_days": row[6],
+        "loc_condition": row[7],
+        "loc_lat": row[8],
+        "loc_lng": row[9]
     }
 
 @app.post("/profile/reminder")
@@ -547,8 +629,10 @@ async def save_reminder(request: Request, user=Depends(get_current_user)):
         (int(user["sub"]), body["action_id"]),
     )
     cur.execute(
-        """INSERT INTO reminders (user_id, action_id, reminder_type, frequency_type, frequency_value, target_hour, target_minute, target_ampm, end_in_days) 
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;""",
+        """INSERT INTO reminders (user_id, action_id, reminder_type, frequency_type, frequency_value, 
+                                  target_hour, target_minute, target_ampm, end_in_days, 
+                                  loc_condition, loc_lat, loc_lng) 
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;""",
         (
             int(user["sub"]),
             body["action_id"],
@@ -558,7 +642,10 @@ async def save_reminder(request: Request, user=Depends(get_current_user)):
             body.get("target_hour", "08"),
             body.get("target_minute", "00"),
             body.get("target_ampm", "AM"),
-            body.get("end_in_days") # Captures the End In toggle
+            body.get("end_in_days"),
+            body.get("loc_condition"), # 🟢 Added Location Data
+            body.get("loc_lat"),       # 🟢 Added Location Data
+            body.get("loc_lng")        # 🟢 Added Location Data
         ),
     )
     reminder_id = cur.fetchone()[0]
@@ -588,10 +675,10 @@ def get_all_reminders(user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Modified SQL: Now strictly checks if user_actions.is_active = TRUE
     cur.execute("""
         SELECT r.action_id, r.reminder_type, r.frequency_type, r.frequency_value, 
-               r.target_hour, r.target_minute, r.target_ampm, a.text 
+               r.target_hour, r.target_minute, r.target_ampm, a.text,
+               r.loc_condition, r.loc_lat, r.loc_lng
         FROM reminders r 
         JOIN actions a ON a.id = r.action_id 
         JOIN user_actions ua ON ua.action_id = r.action_id AND ua.user_id = r.user_id
@@ -609,7 +696,13 @@ def get_all_reminders(user=Depends(get_current_user)):
         for i, day in enumerate(c_days):
             if day == today - timedelta(days=i): streak += 1
             else: break
-        results.append({"action_id": act_id, "reminder_type": r[1], "frequency_type": r[2], "frequency_value": r[3], "target_hour": r[4], "target_minute": r[5], "target_ampm": r[6], "text": r[7], "streak": streak})
+            
+        results.append({
+            "action_id": act_id, "reminder_type": r[1], "frequency_type": r[2], 
+            "frequency_value": r[3], "target_hour": r[4], "target_minute": r[5], 
+            "target_ampm": r[6], "text": r[7], "streak": streak,
+            "loc_condition": r[8], "loc_lat": r[9], "loc_lng": r[10] # 🟢 Included in the output
+        })
         
     cur.close()
     conn.close()
@@ -633,15 +726,85 @@ async def log_missed(request: Request, user=Depends(get_current_user)):
 
 @app.post("/profile/journal")
 async def save_journal(body: JournalBody, user=Depends(get_current_user)):
+    user_id = int(user["sub"])
     conn = get_db_connection()
     cur = conn.cursor()
+    
+    # Save the entry to the database
     cur.execute("INSERT INTO journal_logs (user_id, action_id, content, custom_title) VALUES (%s, %s, %s, %s) RETURNING id;", 
-                (int(user["sub"]), body.action_id, body.content, body.custom_title))
+                (user_id, body.action_id, body.content, body.custom_title))
     conn.commit()
     cur.close()
     conn.close()
-    return {"saved": True}
 
+    # 1. Detect if the session was "Intense" using body.content
+    intense_keywords = ["overwhelmed", "stressed", "panic", "anxious", "terrible", "hard day", "burnout"]
+    is_intense = any(word in body.content.lower() for word in intense_keywords)
+
+    triggered_spotify = False
+    if is_intense:
+        # 2. Fire the background audio trigger
+        triggered_spotify = await trigger_lofi_decompression(user_id)
+
+    return {"saved": True, "vibe_shift": triggered_spotify}
+
+
+##
+@app.post("/profile/voice-journal")
+def process_voice_journal(body: VoiceBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # 1. Gate the feature for Premium users
+    cur.execute("SELECT tier FROM users WHERE id = %s", (int(user["sub"]),))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    tier = row[0] if row else "free"
+    if tier not in ["paid", "pro"]:
+        return {"success": False, "error": "Voice journaling is a premium feature. Please upgrade to use this!"}
+
+    try:
+        # 2. Decode the audio from the browser
+        audio_bytes = base64.b64decode(body.audio_b64)
+
+        # 3. Prompt the AI
+        system_prompt = """
+        You are an empathetic journaling AI. The user has provided an audio recording of their thoughts.
+        Task 1: Provide an exact, highly accurate text transcription of the audio.
+        Task 2: Provide an empathetic, validating response (1 to 2 sentences max) acknowledging their feelings, ending with a relevant question to encourage deeper reflection.
+        
+        Respond ONLY with a raw JSON object containing these two exact keys:
+        {
+            "transcription": "The transcribed text...",
+            "ai_reply": "Your empathetic response and question..."
+        }
+        """
+
+        # 4. Use Gemini 2.5 Flash Lite's native audio capabilities
+        from search_engine import client # Import your initialized client!
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=[
+                types.Part.from_bytes(data=audio_bytes, mime_type=body.mime_type),
+                system_prompt
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
+        
+        data = json.loads(response.text)
+        return {
+            "success": True, 
+            "transcription": data.get("transcription", ""), 
+            "ai_reply": data.get("ai_reply", "")
+        }
+        
+    except Exception as e:
+        print(f"❌ Voice AI Error: {e}")
+        return {"success": False, "error": "Failed to process audio. Ensure your microphone is working."}
 
 @app.put("/profile/journal/{log_id}")
 def update_journal(
@@ -900,6 +1063,61 @@ def get_action_report(action_id: int, user=Depends(get_current_user)):
     
     return {"history": history, "reasons": reasons, "journals": journals}
 
+
+
+async def trigger_lofi_decompression(user_id: int):
+    """Refreshes the Spotify token and forces Lofi playback on the user's active device."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT spotify_access_token, spotify_refresh_token, tier FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+
+    # If they are free tier or haven't linked Spotify, abort silently
+    if not row or row[2] == "free" or not row[1]:
+        cur.close()
+        conn.close()
+        return False
+
+    refresh_token = row[1]
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    auth_str = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+
+    async with httpx.AsyncClient() as client:
+        # 1. Get a fresh, unexpired access token
+        refresh_res = await client.post(
+            "https://accounts.spotify.com/api/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+            headers={"Authorization": f"Basic {auth_str}", "Content-Type": "application/x-www-form-urlencoded"}
+        )
+        
+        if refresh_res.status_code == 200:
+            access_token = refresh_res.json().get("access_token")
+            # Save the fresh token
+            cur.execute("UPDATE users SET spotify_access_token = %s WHERE id = %s", (access_token, user_id))
+            conn.commit()
+        else:
+            access_token = row[0] # Try the old one as a fallback
+
+        # 2. The Magic Play Command! 
+        # This is the official Spotify URI for their "lofi beats" playlist
+        lofi_uri = "spotify:playlist:37i9dQZF1DWWQRwui0S6Ni" 
+        
+        play_res = await client.put(
+            "https://api.spotify.com/v1/me/player/play",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={"context_uri": lofi_uri}
+        )
+
+    cur.close()
+    conn.close()
+    
+    # Spotify returns 204 (No Content) if successful
+    return play_res.status_code in [200, 204]
+
+
+
+
     # --- PHASE 2 MODELS ---
 class ClosingTimeBody(BaseModel):
     closing_time: str
@@ -965,7 +1183,6 @@ def get_ai_coach_insights(user=Depends(get_current_user)):
     cur = conn.cursor()
     user_id = int(user["sub"])
 
-    # 1. Gather User Identity, Tier, and AI Usage
     cur.execute("SELECT name, about_me, closing_time, tier, ai_count, last_ai_date FROM users WHERE id = %s", (user_id,))
     u_row = cur.fetchone()
     
@@ -979,32 +1196,28 @@ def get_ai_coach_insights(user=Depends(get_current_user)):
     ai_count = u_row[4] or 0
     last_ai_date = u_row[5]
 
-    # 2. Rate Limiting Logic (3 uses per day)
     today = datetime.date.today()
     if last_ai_date != today:
-        ai_count = 0  # Reset the count if it's a new day
+        ai_count = 0  
 
     if tier in ["free", "paid"] and ai_count >= 3:
         cur.close()
         conn.close()
         return {"success": False, "error": "You have reached your limit of 3 AI reports today. Try again tomorrow or upgrade!"}
 
-    # 3. Dynamic Model Routing
+    # 🟢 UPGRADED TO GEMINI 2.5 SERIES
     if tier == "pro":
-        # Pro users get the absolute smartest, most advanced model available
-        model_id = 'gemini-3.5-pro'
+        model_id = 'gemini-2.5-pro'
     else:
-        # Free and Paid users get the lightning-fast, highly cost-effective model
-        model_id = 'gemini-3.5-flash'
+        model_id = 'gemini-2.5-flash-lite'
 
-    # 4. Gather the Context
     cur.execute("SELECT text, benefit, times_completed FROM actions WHERE user_id = %s AND is_active = TRUE", (user_id,))
     actions = [{"action": r[0], "why": r[1], "completions": r[2]} for r in cur.fetchall()]
 
     cur.execute("SELECT mood_state, created_at FROM mood_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 14", (user_id,))
     moods = [{"mood": r[0], "date": r[1].isoformat()} for r in cur.fetchall()]
 
-    cur.execute("SELECT type, action_text, content, created_at FROM action_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 20", (user_id,))
+    cur.execute("SELECT type, action_text, content, created_at FROM journal_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 20", (user_id,))
     journals = [{"type": r[0], "action": r[1], "content": r[2], "date": r[3].isoformat()} for r in cur.fetchall()]
 
     full_context = {
@@ -1029,7 +1242,6 @@ def get_ai_coach_insights(user=Depends(get_current_user)):
     """
 
     try:
-        # Initialize the specific model dynamically assigned above
         model = genai.GenerativeModel(model_id)
         response = model.generate_content(
             system_prompt,
@@ -1037,7 +1249,6 @@ def get_ai_coach_insights(user=Depends(get_current_user)):
         )
         ai_response = json.loads(response.text)
         
-        # 5. Success! Update the database to consume 1 of their daily uses
         cur.execute("UPDATE users SET ai_count = %s, last_ai_date = %s WHERE id = %s", (ai_count + 1, today, user_id))
         conn.commit()
         cur.close()
@@ -1050,3 +1261,35 @@ def get_ai_coach_insights(user=Depends(get_current_user)):
         conn.close()
         print(f"Gemini API Error: {e}")
         return {"success": False, "error": "AI service is currently unavailable."}
+
+@app.get("/profile/me")
+def get_user_profile_data(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute(
+            "SELECT name, email, tier, about_me FROM users WHERE id = %s;", 
+            (int(user["sub"]),)
+        )
+        row = cur.fetchone()
+    except Exception as e:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        # 🟢 FIXED: Instead of a silent 404, this will throw a loud 500 Error
+        # Check your terminal! It will tell you EXACTLY what column is missing!
+        raise HTTPException(status_code=500, detail=f"Database Crash: {e}")
+
+    cur.close()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    return {
+        "username": row[0],
+        "email": row[1],
+        "tier": row[2] or "free",
+        "about_me": row[3] or ""
+    }

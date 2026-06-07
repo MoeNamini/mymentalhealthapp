@@ -1,6 +1,7 @@
 // App.jsx — Phase 2 Polished
-import { useState, useEffect, createContext, useContext } from "react"
+import { useState, useEffect, createContext, useContext, useRef } from "react"
 import axios from "axios"
+import { GoogleMap, useJsApiLoader, Marker } from '@react-google-maps/api';
 
 // ─── THEMES ───────────────────────────────────────────────────────────────────
 const THEMES = {
@@ -18,8 +19,148 @@ const THEMES = {
   },
 }
 
+
+// (Keep whatever other imports you already have here, like useApp, etc.)
+
+// ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
+// ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
+// ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
+// ─── 1. THEME PICKER ─────────────────────────────────────────────────────────
+// ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
+export function GlobalThemePicker() {
+  const { t, theme, themeName, setTheme, setThemeName } = useApp();
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Fallback string validation to prevent a blank box appearance
+  const activeTheme = theme || themeName || 'dark';
+  const displayText = activeTheme.charAt(0).toUpperCase() + activeTheme.slice(1);
+
+  if (!activeTheme) return null;
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: '46px',
+      /* Dynamically locks it to the exact left padding boundary of your 1200px layout container */
+      left: 'max(24px, calc(50vw - 576px))',
+      zIndex: 99999,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'flex-start'
+    }}>
+
+      {/* Main Trigger Button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="neu-btn"
+        style={{
+          padding: "14px 24px",
+          fontSize: "18px",
+          borderRadius: "16px",
+          color: t.text,
+          minWidth: "110px",
+          fontWeight: 700,
+          textAlign: "center",
+          cursor: "pointer"
+        }}
+      >
+        {displayText}
+      </button>
+
+      {/* Vertical Rectangle Dropdown List */}
+      {isOpen && (
+        <div
+          className="neu-card"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: "12px",
+            marginTop: "12px",
+            padding: "18px 14px",
+            borderRadius: "24px",
+            width: "126px",
+            alignItems: "stretch"
+          }}
+        >
+          {['light', 'dark', 'calm'].map((th) => {
+            const isActive = activeTheme === th;
+            return (
+              <button
+                key={th}
+                onClick={(e) => {
+                  e.preventDefault();
+                  // 🟢 FIX STUCK THEME: Triggers both context naming possibilities safely
+                  if (typeof setTheme === 'function') setTheme(th);
+                  if (typeof setThemeName === 'function') setThemeName(th);
+                  setIsOpen(false);
+                }}
+                className={isActive ? "neu-inset active-tab" : "neu-btn"}
+                style={{
+                  padding: "12px 14px",
+                  fontSize: "16px",
+                  borderRadius: "14px",
+                  color: isActive ? t.accent : t.text,
+                  fontWeight: 700,
+                  textAlign: "center",
+                  cursor: "pointer",
+                  boxShadow: isActive
+                    ? "inset 4px 4px 8px var(--shadow-d), inset -4px -4px 8px var(--shadow-l)"
+                    : "6px 6px 12px var(--shadow-d), -6px -6px 12px var(--shadow-l)",
+                  border: "none",
+                  transform: "none"
+                }}
+              >
+                {th.charAt(0).toUpperCase() + th.slice(1)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 2. PUBLIC LANDING PAGE (FOR GOOGLE ADSENSE) ─────────────────────────────
+// ─── PUBLIC LANDING PAGE ─────────────────────────────────────────────────────
+function PublicLandingPage({ onNavigate }) {
+  const { t } = useApp(); // Gets the current theme colors
+
+  return (
+    <div style={{ padding: "60px 20px", textAlign: "center", maxWidth: "800px", margin: "0 auto", color: t.text }}>
+      <h1 style={{ fontSize: "48px", fontWeight: "800", marginBottom: "20px" }}>Build Better Habits with MindActions</h1>
+      <p style={{ fontSize: "20px", lineHeight: "1.6", marginBottom: "40px", color: t.subtext }}>
+        Track your mood, journal your thoughts, and unlock personalized AI insights to improve your mental well-being every single day.
+      </p>
+
+      {/*  FIXED: Now uses your app's custom onNavigate function! */}
+      <button
+        onClick={() => onNavigate("login")}
+        className="neu-btn neu-btn-primary"
+        style={{ padding: "16px 32px", fontSize: "20px", cursor: "pointer" }}
+      >
+        Get Started for Free
+      </button>
+
+      <div style={{ marginTop: "60px", textAlign: "left" }}>
+        <h2>Why MindActions?</h2>
+        <p style={{ color: t.subtext }}>MindActions uses evidence-based behavioral tracking and AI-driven analysis to correlate your daily actions with your mood state. Join us to start your journey today.</p>
+      </div>
+    </div>
+  );
+}
+
+
+
+// ─── 5. MAIN APP COMPONENT (THE ROUTER) ──────────────────────────────────────
+
+// ─── 6. YOUR EXISTING COMPONENTS GO DOWN HERE ────────────────────────────────
+// function DashboardComponent() { ... }
+// function MoodTracker() { ... }
+// etc...
+
 const AppCtx = createContext(null)
 const useApp = () => useContext(AppCtx)
+
 
 function setupAxios(token) {
   if (token) axios.defaults.headers.common["Authorization"] = `Bearer ${token}`
@@ -102,6 +243,7 @@ function CatTag({ category }) {
   )
 }
 
+
 // ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
 function LoginPage({ onNavigate }) {
   const { t, setUser, setToken } = useApp()
@@ -173,18 +315,31 @@ function LoginPage({ onNavigate }) {
             <button className="neu-btn neu-btn-primary" onClick={submit} disabled={loading} style={{ width: "100%", padding: "20px", fontSize: 20, marginBottom: 28, marginTop: 36 }}>
               {loading ? "Please wait..." : mode === "login" ? "Log In" : "Create Account"}
             </button>
-            <div style={{ textAlign: "center", fontSize: 16, color: t.subtext, marginBottom: 18 }}>or continue with</div>
-            {[
-              { label: "LinkedIn", href: "/api/auth/google", icon: <svg width="22" height="22" viewBox="0 0 24 24"><path fill="#0A66C2" d="M19 0h-14c-2.76 0-5 2.24-5 5v14c0 2.76 2.24 5 5 5h14c2.76 0 5-2.24 5-5v-14c0-2.76-2.24-5-5-5zm-11 19h-3v-10h3v10zm-1.5-11.27c-.97 0-1.75-.79-1.75-1.75s.78-1.75 1.75-1.75 1.75.79 1.75 1.75-.78 1.75-1.75 1.75zm13.5 11.27h-3v-5.6c0-3.36-4-3.11-4 0v5.6h-3v-10h3v1.48c1.39-2.57 7-2.77 7 2.47v6.05z" /></svg> },
-              { label: "X (Twitter)", href: "/api/auth/twitter", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill={t.text}><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg> },
-            ].map(o => (
-              <button key={o.label} onClick={() => window.location.href = o.href} className="neu-btn" style={{ width: "100%", padding: "18px 20px", fontSize: 18, marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                Continue with {o.label}
-              </button>
-            ))}
+            LoginPage
             <div style={{ textAlign: "center", marginTop: 28, fontSize: 18, color: t.subtext }}>
               {mode === "login" ? "No account?" : "Already have an account?"}
               <span onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError("") }} style={{ color: t.accent, fontWeight: 700, cursor: "pointer", marginLeft: 8 }}>{mode === "login" ? "Sign up" : "Log in"}</span>
+            </div>
+            {/* ─── TRADITIONAL NEUMORPHIC OOR DIVIDER ─── */}
+            <div style={{ display: "flex", alignItems: "center", margin: "24px 0", gap: 16 }}>
+              <div style={{ flex: 1, height: 1, background: t.shadowDark, opacity: 0.15 }} />
+              <span style={{ fontSize: 14, color: t.subtext, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>or</span>
+              <div style={{ flex: 1, height: 1, background: t.shadowDark, opacity: 0.15 }} />
+            </div>
+
+            {/* ─── THIRD-PARTY OAUTH BUTTON PROVIDERS ─── */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <button onClick={() => window.location.href = "/api/auth/google"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                🌐 Continue with Google
+              </button>
+
+              <button onClick={() => window.location.href = "/api/auth/twitter"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                𝕏 Continue with X (Twitter)
+              </button>
+
+              <button onClick={() => window.location.href = "/api/auth/linkedin"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                👔 Continue with LinkedIn
+              </button>
             </div>
           </>
         )}
@@ -276,6 +431,12 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [loadingInitial, setLoadingInitial] = useState(true)
 
+  const [locCondition, setLocCondition] = useState("arrive"); // "arrive" or "leave"
+  const [locCoords, setLocCoords] = useState(null); // { lat, lng }
+  const { isLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY
+  });
   useEffect(() => {
     axios.get(`/api/profile/reminder/${action.id}`)
       .then(res => {
@@ -294,10 +455,19 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
     setSaving(true)
     try {
       await axios.post("/api/profile/reminder", {
-        action_id: action.id, reminder_type: tab, target_hour: String(hour).padStart(2, '0'), target_minute: String(minute).padStart(2, '0'), target_ampm: ampm,
+        action_id: action.id,
+        reminder_type: tab,
+        target_hour: tab === "time" ? String(hour).padStart(2, '0') : null,
+        target_minute: tab === "time" ? String(minute).padStart(2, '0') : null,
+        target_ampm: tab === "time" ? ampm : null,
         frequency_type: repeat && tab === "time" ? repeatUnit : null,
         frequency_value: repeat && tab === "time" ? repeatNum : null,
-        end_in_days: endIn ? endInDays : null
+        end_in_days: endIn ? endInDays : null,
+
+        // 🟢 NEW LOCATION DATA ADDED HERE
+        loc_condition: tab === "location" ? locCondition : null,
+        loc_lat: tab === "location" && locCoords ? locCoords.lat : null,
+        loc_lng: tab === "location" && locCoords ? locCoords.lng : null
       })
       if (tab === "time") {
         const now = new Date(); const target = new Date()
@@ -335,12 +505,14 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
         <div style={{ fontSize: 32, fontWeight: 700, color: t.text, marginBottom: 14 }}>{isEdit ? "Change Reminder" : "Set a Reminder"}</div>
         <div style={{ fontSize: 20, color: t.subtext, marginBottom: 36, lineHeight: 1.6, paddingLeft: 18, borderLeft: `4px solid ${t.accent}` }}>{action.text}</div>
 
+        {/* TAB SELECTOR */}
         <div className="neu-inset" style={{ display: "flex", padding: 8, gap: 8, marginBottom: 44, borderRadius: 18 }}>
-          {["time", "widget"].map(tb => (
-            <button key={tb} onClick={() => setTab(tb)} className={tab === tb ? "neu-btn active-tab" : "neu-btn-flat"} style={{ flex: 1, padding: "18px 0", borderRadius: 14, textTransform: "capitalize", fontSize: 20 }}>{tb === "time" ? "Time" : "Widget"}</button>
+          {["time", "widget", "location"].map(tb => (
+            <button key={tb} onClick={() => setTab(tb)} className={tab === tb ? "neu-btn active-tab" : "neu-btn-flat"} style={{ flex: 1, padding: "18px 0", borderRadius: 14, textTransform: "capitalize", fontSize: 20 }}>{tb === "time" ? "Time" : tb}</button>
           ))}
         </div>
 
+        {/* TIME TAB */}
         {tab === "time" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginBottom: 40 }}>
@@ -393,9 +565,10 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
                 </div>
               </div>
             )}
-
           </div>
         )}
+
+        {/* WIDGET TAB */}
         {tab === "widget" && (
           <div className="neu-inset" style={{ padding: "30px 32px", borderRadius: 24 }}>
             <div style={{ fontSize: 24, fontWeight: 700, color: t.text, marginBottom: 18 }}>Add to Home Screen</div>
@@ -404,12 +577,44 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
             </div>
           </div>
         )}
+
+        {/* LOCATION TAB */}
+        {tab === "location" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {/* Arrive vs Leave Toggle */}
+            <div style={{ display: "flex", gap: 12 }}>
+              <button onClick={() => setLocCondition("arrive")} className={locCondition === "arrive" ? "neu-btn active-tab" : "neu-btn"} style={{ flex: 1, padding: "14px", fontSize: 18 }}>When I Arrive</button>
+              <button onClick={() => setLocCondition("leave")} className={locCondition === "leave" ? "neu-btn active-tab" : "neu-btn"} style={{ flex: 1, padding: "14px", fontSize: 18 }}>When I Leave</button>
+            </div>
+
+            {/* Google Map Picker */}
+            <div className="neu-inset" style={{ height: 300, width: "100%", borderRadius: 16, overflow: "hidden" }}>
+              {isLoaded ? (
+                <GoogleMap
+                  mapContainerStyle={{ width: '100%', height: '100%' }}
+                  center={locCoords || { lat: 37.3891, lng: -5.9845 }} // Defaulting to Seville based on your location!
+                  zoom={12}
+                  onClick={(e) => setLocCoords({ lat: e.latLng.lat(), lng: e.latLng.lng() })}
+                >
+                  {locCoords && <Marker position={locCoords} />}
+                </GoogleMap>
+              ) : (
+                <div style={{ padding: 20, textAlign: "center", color: t.subtext }}>Loading Map...</div>
+              )}
+            </div>
+
+            {locCoords && <div style={{ fontSize: 14, color: t.subtext, textAlign: "center" }}>Location Selected!</div>}
+          </div>
+        )}
+
+        {/* BOTTOM SAVE/CANCEL BUTTONS */}
         <div style={{ marginTop: 46, display: "flex", flexDirection: "column", gap: 20 }}>
           <button onClick={save} disabled={saving} className="neu-btn neu-btn-primary" style={{ padding: "22px", opacity: saving ? 0.6 : 1, fontSize: 22 }}>
             {saving ? "Saving..." : isEdit ? "Update Reminder" : "Save Reminder"}
           </button>
           <button onClick={onClose} className="neu-btn" style={{ padding: "20px", fontSize: 21 }}>Cancel</button>
         </div>
+
       </div>
     </div>
   )
@@ -520,37 +725,170 @@ function ReviewsModal({ action, onClose }) {
   )
 }
 
+// ─── CUSTOM ACTION MODAL ──────────────────────────────────────────────────────
 function CustomActionModal({ onClose, onSuccess }) {
-  const { t } = useApp()
-  const [text, setText] = useState("")
-  const [benefit, setBenefit] = useState("")
-  const [saving, setSaving] = useState(false)
+  const { t } = useApp();
+  const [actionName, setActionName] = useState("");
+  const [whyItHelps, setWhyItHelps] = useState("");
+
+  // 🎛️ Toggle States
+  const [isAudio, setIsAudio] = useState(false);
+  const [isVideo, setIsVideo] = useState(false);
+  const [isSpotify, setIsSpotify] = useState(false);
+
+  // 🎵 Spotify Integration States
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedSpotify, setSelectedSpotify] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    setSearching(true);
+
+    const delayDebounce = setTimeout(() => {
+      axios.get(`/api/spotify/search?q=${encodeURIComponent(searchQuery)}`)
+        .then(res => setSearchResults(res.data.tracks || []))
+        .catch(() => { })
+        .finally(() => setSearching(false));
+    }, 400);
+
+    return () => clearTimeout(delayDebounce);
+  }, [searchQuery]);
 
   async function handleSave() {
-    if (!text.trim()) return
-    setSaving(true)
+    if (!actionName.trim()) return;
+    setSaving(true);
+
+    const payload = {
+      text: actionName.trim(),
+      benefit: whyItHelps.trim(),
+      spotify_uri: isSpotify ? selectedSpotify?.uri : null,
+      spotify_name: isSpotify ? selectedSpotify?.name : null,
+      spotify_type: isSpotify ? selectedSpotify?.type : null
+    };
+
     try {
-      const res = await axios.post("/api/actions/custom", { text, benefit })
-      onSuccess({ id: res.data.action_id, text, benefit, category: "Customized" })
-    } catch { } finally { setSaving(false) }
+      const res = await axios.post("/api/actions/custom", payload);
+      onSuccess({
+        id: res.data.action_id,
+        text: actionName.trim(),
+        benefit: whyItHelps.trim(),
+        category: "Customized"
+      });
+    } catch (err) {
+      alert("Failed to save custom action.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="glass-modal" onClick={onClose}>
-      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 520, width: "100%" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 28, fontWeight: 700, color: t.text, marginBottom: 14 }}>Create Custom Action</div>
-        <label className="input-label">Action Name</label>
-        <input className="neu-input" value={text} onChange={e => setText(e.target.value)} placeholder="Your own Action" style={{ width: "100%", padding: "18px 22px", fontSize: 19, marginBottom: 18 }} />
-        <label className="input-label">Why it helps</label>
-        <textarea className="neu-input" value={benefit} onChange={e => setBenefit(e.target.value)} rows={4} placeholder="How or why this will help you?" style={{ width: "100%", padding: "18px 22px", fontSize: 19, marginBottom: 30, resize: "vertical" }} />
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving || !text.trim()} style={{ padding: "18px", fontSize: 20 }}>{saving ? "Saving..." : "Save & Set Reminder"}</button>
-          <button className="neu-btn" onClick={onClose} style={{ padding: "18px", fontSize: 20 }}>Cancel</button>
+      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 600, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 32, fontStyle: "italic", fontFamily: "'Autumn Brush', 'Caveat', cursive", color: t.text, marginBottom: 32 }}>
+          Create Custom Action
+        </div>
+
+        <div style={{ marginBottom: 28 }}>
+          <label className="input-label">Action Name</label>
+          <input
+            className="neu-input"
+            value={actionName}
+            onChange={e => setActionName(e.target.value)}
+            placeholder="Your own Action"
+            style={{ width: "100%", padding: "18px 20px", fontSize: 18 }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 28 }}>
+          <label className="input-label">Why it helps</label>
+          <textarea
+            className="neu-input"
+            value={whyItHelps}
+            onChange={e => setWhyItHelps(e.target.value)}
+            placeholder="How or why this will help you?"
+            rows={4}
+            style={{ width: "100%", padding: "18px 20px", fontSize: 18, resize: "none" }}
+          />
+        </div>
+
+        <div style={{ fontSize: 20, fontWeight: 700, color: t.subtext, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>
+          Actions
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 18, color: t.text }}>Audio</span>
+            <button onClick={() => setIsAudio(!isAudio)} className={isAudio ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+              {isAudio ? "Enabled" : "Disabled"}
+            </button>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 18, color: t.text }}>Video</span>
+            <button onClick={() => setIsVideo(!isVideo)} className={isVideo ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+              {isVideo ? "Enabled" : "Disabled"}
+            </button>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 18, color: t.text }}>Spotify</span>
+            <button onClick={() => setIsSpotify(!isSpotify)} className={isSpotify ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+              {isSpotify ? "On" : "Off"}
+            </button>
+          </div>
+        </div>
+
+        {isSpotify && (
+          <div className="neu-inset" style={{ padding: 20, borderRadius: 16, marginBottom: 28 }}>
+            <label className="input-label" style={{ marginTop: 0, fontSize: 16 }}>Search Spotify Tracks & Playlists</label>
+            <input
+              className="neu-input"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Type track, playlist, or artist..."
+              style={{ width: "100%", padding: "12px 16px", fontSize: 16, marginBottom: 12 }}
+            />
+
+            {selectedSpotify && (
+              <div style={{ fontSize: 14, color: t.accent, fontWeight: 700, marginBottom: 8 }}>
+                Linked: {selectedSpotify.name} ({selectedSpotify.type})
+              </div>
+            )}
+
+            {searchResults.length > 0 && (
+              <div style={{ maxHeight: 160, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                {searchResults.map(item => (
+                  <div
+                    key={item.uri}
+                    onClick={() => setSelectedSpotify({ uri: item.uri, name: item.name, type: item.type })}
+                    style={{ padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 15, color: t.text, background: selectedSpotify?.uri === item.uri ? t.selectionBg : "transparent" }}
+                  >
+                    {item.name} <span style={{ opacity: 0.6, fontSize: 13 }}>by {item.artist}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {searching && <div style={{ fontSize: 14, color: t.subtext, fontStyle: "italic" }}>Searching...</div>}
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving || !actionName.trim()} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>
+            {saving ? "Saving..." : "Save & Set Reminder"}
+          </button>
+          <button className="neu-btn" onClick={onClose} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>
+            Cancel
+          </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
+
+
 
 // ─── ACTION REPORT MODAL ──────────────────────────────────────────────────────
 function ReportModal({ actionText, history, reasons, journals, onClose }) {
@@ -632,6 +970,10 @@ function ReportModal({ actionText, history, reasons, journals, onClose }) {
 }
 
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
+// ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
+// ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
+// ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
+// ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
 function JournalInModal({ action, onClose, onSaved }) {
   const { t } = useApp()
   const [content, setContent] = useState("")
@@ -639,6 +981,13 @@ function JournalInModal({ action, onClose, onSaved }) {
   const [pastCategories, setPastCategories] = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // 🎙️ Voice States
+  const [showVoice, setShowVoice] = useState(false);
+  const [aiReply, setAiReply] = useState("");
+
+  // 🎧 Spotify Cinematic States
+  const [sessionState, setSessionState] = useState("writing"); // "writing", "fading", "decompressing"
 
   useEffect(() => {
     if (!action) {
@@ -653,75 +1002,150 @@ function JournalInModal({ action, onClose, onSaved }) {
   async function handleSave() {
     if (!content.trim()) { onClose(); return }
     setSaving(true)
-    await axios.post("/api/profile/journal", {
-      action_id: action ? action.id : null,
-      content: content.trim(),
-      custom_title: action ? null : customTitle.trim()
-    }).catch(() => { })
-    if (onSaved) onSaved()
-    onClose()
+
+    try {
+      const res = await axios.post("/api/profile/journal", {
+        action_id: action ? action.id : null,
+        content: content.trim(),
+        custom_title: action ? null : customTitle.trim()
+      });
+
+      if (res.data.vibe_shift) {
+        setSessionState("fading");
+        setTimeout(() => setSessionState("decompressing"), 600);
+      } else {
+        if (onSaved) onSaved()
+        onClose()
+      }
+    } catch (e) {
+      console.error(e);
+      setSaving(false);
+    }
+  }
+
+  async function handleTalkClick() {
+    try {
+      const res = await axios.get("/api/profile/me");
+      const currentTier = res.data.tier || "free";
+      if (currentTier === "paid" || currentTier === "pro") {
+        setShowVoice(true);
+      } else {
+        alert("🎙️ Voice Journaling is a Premium feature. Please upgrade your membership in Account Settings to unlock voice inputs!");
+      }
+    } catch (err) {
+      alert("Unable to verify subscription status. Please try again.");
+    }
   }
 
   return (
-    <div className="glass-modal" onClick={onClose}>
-      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 760, width: "100%" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 28, fontWeight: 700, color: t.text, marginBottom: 14 }}>Journal Entry</div>
+    <div className="glass-modal" onClick={sessionState === "writing" ? onClose : undefined}>
+      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 760, width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
 
-        <div style={{ position: "relative", marginBottom: 36, paddingLeft: 16, borderLeft: `4px solid ${t.accent}` }}>
-          {action ? (
-            <div style={{ fontSize: 18, color: t.text, fontStyle: "italic" }}>"{action.text}"</div>
-          ) : (
-            <>
-              <input
-                className="neu-input"
-                value={customTitle}
-                onFocus={() => setShowDropdown(true)}
-                // Timeout allows the user to actually click the dropdown item before it closes
-                onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-                onChange={e => setCustomTitle(e.target.value)}
-                placeholder="Enter or select category..."
-                style={{ fontSize: 18, color: t.text, fontStyle: "italic", padding: "8px 12px", width: "100%", background: "transparent", boxShadow: "none", borderBottom: `1px dashed ${t.accent}`, borderRadius: 0 }}
-              />
+        {/* 🎧 THE DECOMPRESSION CARD (Pops up inside the modal) */}
+        {sessionState === "decompressing" && (
+          <div style={{ textAlign: "center", animation: "slideUpFade 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards", padding: "40px 0" }}>
+            <div style={{ fontSize: 64, marginBottom: 20 }}>🎧</div>
+            <h2 style={{ color: t.text, fontSize: 28, marginBottom: 16 }}>Deep breaths.</h2>
+            <p style={{ color: t.subtext, fontSize: 18, lineHeight: 1.6, maxWidth: 500, margin: "0 auto", marginBottom: 32 }}>
+              That sounded like a tough session. I've queued up an ambient lofi setup on your Spotify to help you decompress.
+              <br /><br />
+              Step away from the screen for a minute. You've got this.
+            </p>
+            <button
+              className="neu-inset active-tab"
+              onClick={() => { if (onSaved) onSaved(); onClose(); }}
+              style={{ padding: "12px 28px", fontSize: 16, fontWeight: 700, color: t.accent }}
+            >
+              Close Journal
+            </button>
+          </div>
+        )}
 
-              {/* Custom Sophisticated Dropdown Menu */}
-              {showDropdown && pastCategories.length > 0 && (
-                <div className="neu-card" style={{ position: "absolute", top: "100%", left: 16, right: 0, zIndex: 10, padding: "8px 0", marginTop: 4, maxHeight: 200, overflowY: "auto", borderRadius: 16 }}>
-                  {pastCategories.map(c => (
-                    <div
-                      key={c}
-                      onClick={() => { setCustomTitle(c); setShowDropdown(false); }}
-                      style={{ padding: "10px 20px", fontSize: 17, color: t.text, cursor: "pointer", transition: "background 0.2s" }}
-                      onMouseEnter={e => e.currentTarget.style.background = t.selectionBg}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                    >
-                      {c}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        {/* 📝 ORIGINAL UI (Fades out when Spotify is triggered) */}
+        <div style={{
+          transition: "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+          opacity: sessionState === "writing" ? 1 : 0,
+          visibility: sessionState === "writing" ? "visible" : "hidden",
+          height: sessionState === "writing" ? "auto" : "0px",
+          overflow: "hidden"
+        }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: t.text, marginBottom: 14 }}>Journal Entry</div>
 
-        <textarea
-          className="neu-input notebook-paper"
-          value={content}
-          onChange={e => setContent(e.target.value)}
-          rows={8}
-          placeholder={
-            action
-              ? "How do you feel about this Action and your streak?"
-              : (window.lastMood === "Down" ? "Frustrated/Blocked, Overwhelmed, Discouraged, Burned Out..." :
-                window.lastMood === "Great" ? "Inspired/High Energy, Productive, Confident, Socially Connected..." :
-                  "Routine/Usual, Just Another Day, Completed my Tasks...")
-          }
-          style={{ width: "100%", resize: "vertical", marginBottom: 30 }}
-        />
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving} style={{ padding: "18px", fontSize: 20 }}>{saving ? "Saving..." : "Save Entry"}</button>
-          <button className="neu-btn" onClick={onClose} style={{ padding: "18px", fontSize: 20 }}>Cancel</button>
+          <div style={{ position: "relative", marginBottom: 36, paddingLeft: 16, borderLeft: `4px solid ${t.accent}` }}>
+            {action ? (
+              <div style={{ fontSize: 18, color: t.text, fontStyle: "italic" }}>"{action.text}"</div>
+            ) : (
+              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                <input
+                  className="neu-input"
+                  value={customTitle}
+                  onFocus={() => setShowDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                  onChange={e => setCustomTitle(e.target.value)}
+                  placeholder="Enter or select category..."
+                  style={{ fontSize: 18, color: t.text, fontStyle: "italic", padding: "8px 36px 8px 12px", width: "100%", background: "transparent", boxShadow: "none", borderBottom: `1px dashed ${t.accent}`, borderRadius: 0, paddingRight: "30px" }}
+                />
+                <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: t.subtext, pointerEvents: "none", opacity: 0.7 }}>▼</span>
+                {showDropdown && pastCategories.length > 0 && (
+                  <div className="neu-card" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, padding: "8px 0", marginTop: 4, maxHeight: 200, overflowY: "auto", borderRadius: 16 }}>
+                    {pastCategories.map(c => (
+                      <div key={c} onClick={() => { setCustomTitle(c); setShowDropdown(false); }} style={{ padding: "10px 20px", fontSize: 17, color: t.text, cursor: "pointer", transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = t.selectionBg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        {c}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ position: "relative", marginBottom: 30 }}>
+            <textarea
+              className="neu-input notebook-paper"
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              rows={8}
+              placeholder={action ? "How do you feel about this Action and your streak?" : "Frustrated/Blocked, Overwhelmed, Discouraged, Burned Out..."}
+              style={{ width: "100%", resize: "vertical", paddingRight: 90, paddingTop: 20 }}
+            />
+            <button onClick={handleTalkClick} className="neu-btn" style={{ position: "absolute", top: 16, right: 16, padding: "8px 18px", fontSize: 15, borderRadius: "12px", zIndex: 5, fontWeight: 800 }}>
+              Talk
+            </button>
+            {aiReply && (
+              <div className="neu-inset" style={{ padding: "20px", marginTop: 16, borderRadius: 16, borderLeft: `4px solid ${t.accent}` }}>
+                <div style={{ fontSize: 14, textTransform: "uppercase", fontWeight: 800, color: t.subtext, marginBottom: 8, letterSpacing: 1 }}>AI Coach Responds:</div>
+                <div style={{ fontSize: 18, color: t.text, lineHeight: 1.6 }}>{aiReply}</div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving} style={{ padding: "18px", fontSize: 20 }}>
+              {saving ? "Saving..." : "Save Entry"}
+            </button>
+            <button className="neu-btn" onClick={onClose} style={{ padding: "18px", fontSize: 20 }}>
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
+
+      {showVoice && (
+        <VoiceRecorderModal
+          onClose={() => setShowVoice(false)}
+          onProcessed={(transcript, reply) => {
+            setContent(prev => prev ? prev + "\n\n" + transcript : transcript);
+            setAiReply(reply);
+          }}
+        />
+      )}
+
+      <style>{`
+        @keyframes slideUpFade {
+          0% { opacity: 0; transform: translateY(40px) scale(0.95); }
+          100% { opacity: 1; transform: translateY(0px) scale(1); }
+        }
+      `}</style>
     </div>
   )
 }
@@ -783,6 +1207,7 @@ function VideoModal({ embedUrl, title, onClose }) {
 }
 
 // ─── SEARCH PAGE ──────────────────────────────────────────────────────────────
+// ─── SEARCH PAGE ──────────────────────────────────────────────────────────────
 function SearchPage() {
   const { t, user, logout, searchQuery, setSearchQuery, activeCat, setActiveCat, setPage, setShareModal } = useApp()
   const [results, setResults] = useState([])
@@ -793,22 +1218,71 @@ function SearchPage() {
   const [showCustomModal, setShowCustomModal] = useState(false)
   const [pendingCustomAction, setPendingCustomAction] = useState(null)
 
+  // 🟢 NEW: AI Search State
+  const [aiToggle, setAiToggle] = useState(false)
+
   useEffect(() => {
     axios.get("/api/categories").then(r => setCategories(r.data.categories || [])).catch(() => { })
   }, [])
 
+  // Auto-search when category changes
   useEffect(() => {
-    if (activeCat || searchQuery) doSearch()
+    if (activeCat || searchQuery) executeSearch()
   }, [activeCat])
 
-  async function doSearch() {
-    if (!searchQuery.trim() && !activeCat) return
+  // 🟢 NEW: Master Search Execution Engine (Handles Ads & AI Routing)
+  // 🟢 NEW: Master Search Execution Engine
+  async function executeSearch() {
+    if (!searchQuery.trim() && !activeCat) return;
+
+    if (aiToggle && searchQuery.trim()) {
+
+      // 1. Check if we are testing locally to bypass the Ad requirement!
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+      if (user?.tier === "pro" || user?.tier === "paid" || isLocal) {
+        runBackendSearch(true); // Run instantly!
+      } else {
+        // 2. Free Users on Live Production must watch an ad
+        setLoading(true);
+        setErrorMsg("");
+        if (window.adsbygoogle) {
+          try {
+            window.adsbygoogle.push({
+              rewarded: {
+                adDismissed: () => runBackendSearch(true),
+                adError: () => {
+                  setErrorMsg("Please disable your adblocker to unlock AI Search.");
+                  setLoading(false);
+                }
+              }
+            });
+          } catch (e) {
+            setErrorMsg("Failed to load video ad.");
+            setLoading(false);
+          }
+        } else {
+          setErrorMsg("Please disable your ad-blocker to use the free AI Search feature.");
+          setLoading(false);
+        }
+      }
+    } else {
+      // 3. Standard Search (No AI, No Ad)
+      runBackendSearch(false);
+    }
+  }
+
+  // 🟢 NEW: Actually calls the backend endpoints
+  async function runBackendSearch(useAI) {
     setLoading(true)
     setErrorMsg("")
+    setResults([])
     try {
+      const endpoint = useAI ? "/api/search/ai" : "/api/search"
       const params = { q: searchQuery, limit: 12 }
       if (activeCat) params.category = activeCat
-      const res = await axios.get("/api/search", { params })
+
+      const res = await axios.get(endpoint, { params })
       if (res.data.error) setErrorMsg(res.data.error)
       setResults(res.data.results || [])
     } catch {
@@ -824,17 +1298,41 @@ function SearchPage() {
       <div style={{ padding: "46px 24px 24px" }}>
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 38 }}>
-            <span style={{ color: t.text, fontSize: 32, fontWeight: 800 }}>MindActions</span>
+            <span style={{
+              color: t.text,
+              fontSize: 42,
+              fontWeight: 800,
+              letterSpacing: "1px",
+              margin: "0 auto"
+            }}>
+              MindActions</span>
             <div style={{ display: "flex", gap: 16 }}>
               <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 26px", fontSize: 18 }}>{user?.name?.split(" ")[0] || "Profile"}</button>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 20, maxWidth: 700, margin: "0 auto 28px" }}>
-            <input className="neu-inset search-input" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && doSearch()}
-              placeholder="Describe how you feel or what you want to improve"
-              style={{ flex: 1, padding: "20px 24px", fontSize: 19, color: t.text, border: "none", outline: "none", borderRadius: 16 }} />
-            <button className="neu-btn neu-btn-primary" onClick={doSearch} style={{ padding: "20px 36px", fontSize: 19 }}>Search</button>
+          {/* 🟢 UPDATED: Search Bar with embedded AI Toggle */}
+          <div style={{ display: "flex", gap: 12, maxWidth: 800, margin: "0 auto 28px", alignItems: "stretch" }}>
+
+            <div className="neu-inset" style={{ display: "flex", flex: 1, borderRadius: 16, padding: "6px" }}>
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && executeSearch()}
+                placeholder="Describe how you feel or what you want to improve"
+                style={{ flex: 1, padding: "16px 20px", fontSize: 19, color: t.text, border: "none", outline: "none", background: "transparent" }}
+              />
+
+              <button
+                onClick={() => setAiToggle(!aiToggle)}
+                className={aiToggle ? "neu-inset active-tab" : "neu-btn-flat"}
+                style={{ padding: "0 18px", borderRadius: 12, display: "flex", alignItems: "center", gap: 6, fontWeight: 800, fontSize: 16, transition: "all 0.3s" }}
+              >
+                AI {aiToggle ? "ON" : "OFF"}
+              </button>
+            </div>
+
+            <button className="neu-btn neu-btn-primary" onClick={executeSearch} style={{ padding: "0 32px", fontSize: 19 }}>Search</button>
             <button className="neu-btn" onClick={() => setShowCustomModal(true)} style={{ width: 66, fontSize: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
           </div>
 
@@ -1072,7 +1570,21 @@ function ProfilePage() {
   const [showTrophies, setShowTrophies] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
 
+  // 🟢 NEW: Holds live account data matching your Neon cloud table schema
+  const [liveProfile, setLiveProfile] = useState({
+    username: user?.name || "User",
+    email: "",
+    tier: "free"
+  })
+
   function fetchProfileData() {
+    // 🟢 NEW: Hit our updated endpoint to query the real dynamic tier row on the fly
+    axios.get("/api/profile/me")
+      .then(res => {
+        setLiveProfile(res.data)
+      })
+      .catch(err => console.error("Could not sync live account tier data:", err))
+
     axios.get("/api/profile/actions").then(async res => {
       const fetchedActions = res.data.actions || []
       setActions(fetchedActions)
@@ -1167,7 +1679,18 @@ function ProfilePage() {
       <div style={{ padding: "46px 24px 34px" }}>
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 44 }}>
-            <button className="neu-btn" onClick={() => setPage("search")} style={{ padding: "14px 24px", fontSize: 18 }}>Search</button>
+            <button
+              className="neu-btn"
+              onClick={() => setPage("search")}
+              style={{
+                padding: "14px 24px",
+                fontSize: 18,
+                marginLeft: "126px",
+                marginTop: "0px"
+              }}
+            >
+              Search
+            </button>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <button className="neu-btn" onClick={() => setShowInsights(true)} style={{ padding: "14px 24px", fontSize: 18 }}>Insights</button>
               <button className="neu-btn" onClick={() => setShowTrophies(true)} style={{ padding: "14px 24px", fontSize: 18 }}>Trophies</button>
@@ -1182,9 +1705,27 @@ function ProfilePage() {
               onClick={() => setPage("edit-profile")}
               style={{ width: 96, height: 96, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, fontWeight: 800, color: t.accent, marginBottom: 20, cursor: "pointer" }}
             >
-              {user?.name?.[0]?.toUpperCase() || "U"}
+              {liveProfile.username?.[0]?.toUpperCase() || "U"}
             </div>
-            <p style={{ color: t.text, fontWeight: 800, fontSize: 32, marginBottom: 6 }}>{user?.name}</p>
+            {/* 🟢 READS DIRECTLY FROM LIVE STATE */}
+            <p style={{ color: t.text, fontWeight: 800, fontSize: 32, marginBottom: 8 }}>{liveProfile.username}</p>
+
+            {/* 🟢 NEW VISUAL PREMIUM ACCOUNT BADGE DISPLAY */}
+            <div
+              className="neu-inset"
+              style={{
+                padding: "6px 16px",
+                borderRadius: "12px",
+                fontSize: 14,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "1px",
+                color: liveProfile.tier !== "free" ? t.accent : t.subtext,
+                display: "inline-block"
+              }}
+            >
+              {liveProfile.tier} Member
+            </div>
           </div>
 
           <div className="neu-inset" style={{ display: "flex", padding: 10, borderRadius: 20, maxWidth: 740, margin: "0 auto" }}>
@@ -1373,6 +1914,16 @@ function ReminderListCard({ action, rem, onEditTrigger }) {
           <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}>By Widget</span>
         </button>
       )
+
+    } else if (rem.reminder_type === "location") {
+      nextString = `Trigger: When I ${rem.loc_condition || 'arrive'} at location`
+      typeBlock = (
+        <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Location</span>
+          <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}> Map Pin</span>
+        </button>
+      )
+
     } else if (rem.reminder_type === "time") {
       const now = new Date(); const target = new Date()
       let h = parseInt(rem.target_hour || "08")
@@ -1399,6 +1950,7 @@ function ReminderListCard({ action, rem, onEditTrigger }) {
         </>
       )
     }
+
   }
 
   return (
@@ -1452,7 +2004,7 @@ function JournalPage() {
       <div style={{ padding: "46px 24px 34px" }}>
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 44 }}>
-            <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18 }}>Back to Profile</button>
+            <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18, marginLeft: "126px" }}>Back to Profile</button>
             <span style={{ color: t.text, fontSize: 32, fontWeight: 800 }}>MindActions</span>
             <button className="neu-btn neu-btn-primary" onClick={() => setGenericJournalModal(true)} style={{ width: 50, height: 50, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>+</button>
           </div>
@@ -1918,6 +2470,19 @@ function EditProfilePage() {
 
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
+  const [liveTier, setLiveTier] = useState("free");
+
+  // 🟢 PASTE THIS RIGHT HERE
+  async function handleLinkSpotify() {
+    try {
+      const res = await axios.get("/api/auth/spotify/url");
+      window.location.href = res.data.url;
+    } catch (err) {
+      console.error(err);
+      alert("Failed to connect to backend for Spotify integration.");
+    }
+  }
+
   // Converts backend "20:00" to front-end "08:00 PM"
   function format12Hour(timeStr) {
     if (!timeStr) return "08:00 PM";
@@ -1930,7 +2495,21 @@ function EditProfilePage() {
   useEffect(() => {
     axios.get("/api/profile/settings").then(res => setClosingTime(res.data.closing_time || "20:00")).catch(() => { })
     axios.get("/api/profile/mood").then(res => setMoodHistory(res.data.moods || [])).catch(() => { })
+
   }, [])
+
+
+  useEffect(() => {
+    axios.get("/api/profile/me")
+      .then(res => {
+        if (res.data && res.data.tier) {
+          setLiveTier(res.data.tier);
+        }
+      })
+      .catch(err => console.error("Could not sync live account tier data:", err));
+  }, []);
+
+
 
   async function saveUsername() {
     if (!username.trim()) return
@@ -1961,25 +2540,43 @@ function EditProfilePage() {
     logout()
   }
 
+
+
   return (
     <div className="layout-container" style={{ minHeight: "100vh" }}>
       <div style={{ padding: "46px 24px 90px" }}>
 
+        {/* ─── 🟢 HEADER: FIXED ALIGNMENT ─── */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 44 }}>
-          <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18 }}>Back to Profile</button>
-          <span style={{ color: t.text, fontSize: 32, fontWeight: 800 }}>Account Settings</span>
+          {/* Left Side: Theme & Back Button strictly next to each other */}
+          <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+            <GlobalThemePicker />
+            <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18 }}>
+              Back to Profile
+            </button>
+          </div>
+
+          {/* Right Side: Account Settings title (Insights removed) */}
+          <span style={{ color: t.text, fontSize: 32, fontWeight: 800 }}>
+            Account Settings
+          </span>
         </div>
 
         <div className="action-grid">
-          <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+
+          {/* ─── 🟢 IDENTITY BOX: EQUAL SPACING & DELETE ACCOUNT MOVED ─── */}
+          <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32, display: "flex", flexDirection: "column", gap: 24 }}>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>Identity</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: t.subtext, fontStyle: "italic" }}>Joined: {user?.created_at ? new Date(user.created_at).toLocaleDateString() : "Recently"}</div>
             </div>
 
-            <div style={{ marginBottom: 16, color: t.subtext, fontSize: 18 }}>Email: <span style={{ color: t.text, fontWeight: 600 }}>{user?.email}</span></div>
+            <div style={{ color: t.subtext, fontSize: 18 }}>
+              Email: <span style={{ color: t.text, fontWeight: 600 }}>{user?.email}</span>
+            </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
               {isEditingName ? (
                 <div style={{ display: "flex", gap: 12, flex: 1 }}>
                   <input className="neu-input" value={username} onChange={e => setUsername(e.target.value)} style={{ flex: 1, padding: "10px 16px", fontSize: 18 }} />
@@ -1993,16 +2590,23 @@ function EditProfilePage() {
               )}
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 18, color: t.subtext }}>Password parameters secure</span>
               <button className="neu-btn" onClick={() => setShowPasswordModal(true)} style={{ padding: "10px 20px", fontSize: 16 }}>Change Password</button>
             </div>
 
-            <div style={{ height: 1, background: t.shadowDark, opacity: 0.1, margin: "24px 0" }} />
+            {/* Delete Account button moved here, perfectly matching the row style */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 18, color: t.subtext }}>Permanently remove data</span>
+              <button className="neu-btn" onClick={() => setShowDeleteModal(true)} style={{ padding: "10px 20px", fontSize: 16, color: "#c94c4c" }}>Delete Account</button>
+            </div>
+
+            <div style={{ height: 1, background: t.shadowDark, opacity: 0.1 }} />
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>Closing the Day</div>
+                {/* Changed t.subtext to t.text so it renders in the whiteish color */}
+                <div style={{ fontSize: 16, fontWeight: 700, color: t.text, textTransform: "uppercase", letterSpacing: 1 }}>Closing the Day</div>
                 <div style={{ fontSize: 14, color: t.subtext, marginTop: 4 }}>Daily check-ins trigger at this time</div>
               </div>
 
@@ -2013,12 +2617,27 @@ function EditProfilePage() {
             </div>
           </div>
 
+          {/* ─── 🟢 SUBSCRIPTION BOX: UPGRADE BUTTON RESTORED ─── */}
           <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Subscription Membership</div>
-              <span style={{ fontSize: 24, fontWeight: 800, color: t.text, textTransform: "capitalize" }}>{user?.tier || "Free"} Account</span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: t.text, textTransform: "capitalize" }}>{liveTier} Account</span>
             </div>
-            {(user?.tier === "free" || !user?.tier) && (
+
+            {/* The condition hiding the button has been removed so it is always visible */}
+            <button className="neu-btn neu-btn-primary" onClick={() => setShowUpgradeModal(true)} style={{ padding: "14px 28px", fontSize: 18 }}>
+              Change Tier
+            </button>
+          </div>
+
+          <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 32, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Subscription Membership</div>
+              {/* 🟢 FIXED: Now dynamically renders your real, live database tier! */}
+              <span style={{ fontSize: 24, fontWeight: 800, color: t.text, textTransform: "capitalize" }}>{liveTier} Account</span>
+            </div>
+            {/* 🟢 FIXED: Button visibility now safely targets the live state condition too */}
+            {(liveTier === "free" || !liveTier) && (
               <button className="neu-btn neu-btn-primary" onClick={() => setShowUpgradeModal(true)} style={{ padding: "14px 28px", fontSize: 18 }}>
                 Change Tier
               </button>
@@ -2050,9 +2669,7 @@ function EditProfilePage() {
           )}
         </div>
 
-        <div style={{ textAlign: "center" }}>
-          <button className="neu-btn" onClick={() => setShowDeleteModal(true)} style={{ padding: "16px 32px", fontSize: 18, color: "#c94c4c" }}>Delete Account</button>
-        </div>
+
       </div>
 
       {showPasswordModal && (
@@ -2087,6 +2704,44 @@ function EditProfilePage() {
         </div>
       )}
 
+      {/* ─── LINKED APPS / INTEGRATIONS ─── */}
+      <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 44 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 24 }}>Linked Integrations</div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div className="neu-card" style={{ width: 50, height: 50, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>
+              🎵
+            </div>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: t.text }}>Spotify</div>
+              <div style={{ fontSize: 14, color: t.subtext }}>Automate music with your custom actions</div>
+            </div>
+          </div>
+
+          {/* 🟢 PREMIUM TIER CHECKER AND BUTTON */}
+          {(liveTier === "free" || !liveTier) ? (
+            <div style={{ textAlign: "right" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
+              <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
+            </div>
+          ) : (
+            <button
+              className="neu-btn"
+              onClick={handleLinkSpotify}
+              style={{ padding: "10px 20px", fontSize: 16, color: "#1DB954", fontWeight: 800 }}
+            >
+              Link Account
+            </button>
+          )}
+        </div>
+      </div>
+
+
+
+
+
+
       {showDeleteModal && (
         <div className="glass-modal">
           <div className="neu-card" style={{ padding: 40, maxWidth: 480, width: "100%", textAlign: "center" }}>
@@ -2099,32 +2754,23 @@ function EditProfilePage() {
             </div>
           </div>
         </div>
-      )}
+      )
+      }
 
-      {showUpgradeModal && (
-        <UpgradeModal
-          currentTier={user?.tier || "free"}
-          onClose={() => setShowUpgradeModal(false)}
-          onUpgrade={(newTier) => setUser({ ...user, tier: newTier })}
-        />
-      )}
+      {
+        showUpgradeModal && (
+          <UpgradeModal
+            currentTier={user?.tier || "free"}
+            onClose={() => setShowUpgradeModal(false)}
+            onUpgrade={(newTier) => setUser({ ...user, tier: newTier })}
+          />
+        )
+      }
 
-    </div>
+    </div >
   )
 }
 
-function ThemePicker() {
-  const { themeName, setThemeName, t } = useApp()
-  return (
-    <div className="neu-card" style={{ position: "fixed", bottom: 20, right: 20, zIndex: 500, borderRadius: 28, padding: 8, display: "flex", gap: 10, transform: "scale(0.8)", transformOrigin: "bottom right" }}>
-      {["light", "dark", "calm"].map(id => (
-        <button key={id} onClick={() => setThemeName(id)} className={themeName === id ? "neu-btn active-tab" : "neu-btn"} style={{ padding: "14px 24px", borderRadius: 22, fontSize: 18 }}>
-          {id}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 export default function App() {
   const [themeName, setThemeNameState] = useState(() => localStorage.getItem("theme") || "calm")
@@ -2208,7 +2854,7 @@ export default function App() {
   const ctx = { t, themeName, setThemeName, user, setUser, token, setToken, logout: () => { localStorage.clear(); setToken(null); setUser(null); setupAxios(null); setPage("login"); }, scheduleNotification, cancelNotification, setCompletionFlow, setPage, searchQuery, setSearchQuery, activeCat, setActiveCat, goToCategory: (c) => { setSearchQuery(""); setActiveCat(c); setPage("search") }, setViewJournalIn, setGenericJournalModal, setActiveVideo, setShareModal }
 
   function render() {
-    if (!page) return null
+    if (page === "landing" || page === null) return <PublicLandingPage onNavigate={setPage} />
     if (page === "callback") return <AuthCallback onNavigate={setPage} />
     if (!user || !token) return <LoginPage onNavigate={setPage} />
     if (page === "profile") return <ProfilePage />
@@ -2219,6 +2865,7 @@ export default function App() {
 
   return (
     <AppCtx.Provider value={ctx}>
+
       <div className={`app-wrapper theme-${themeName}`} style={{ '--bg': t.bg, '--shadow-d': t.shadowDark, '--shadow-l': t.shadowLight, '--accent': t.accent, '--accent-text': t.accentText, '--text': t.text, '--subtext': t.subtext, '--placeholder': t.placeholder, '--streak-on': t.streakOn, '--streak-off': t.streakOff, '--bg-rgb': t.bgRGB, '--selection-bg': t.selectionBg, minHeight: "100vh", backgroundColor: "var(--bg)", color: "var(--text)" }}>
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700;800&family=Autumn+Brush&display=swap');
@@ -2253,9 +2900,25 @@ export default function App() {
           .input-label { font-size: 18px; font-weight: 700; color: var(--subtext); display: block; margin-bottom: 12px; margin-top: 20px; }
           .layout-container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 16px; transition: max-width 0.3s ease; }
           .action-grid { display: flex; flex-direction: column; gap: 32px; width: 100%; }
+          @keyframes voice-wave {
+            0%, 100% { transform: scaleY(0.5); opacity: 0.7; }
+            50% { transform: scaleY(1.5); opacity: 1; }
+          }
+          .wave-bar {
+            width: 8px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 4px;
+            animation: voice-wave 1s infinite ease-in-out;
+          }
+          .wave-bar:nth-child(1) { animation-delay: 0.0s; }
+          .wave-bar:nth-child(2) { animation-delay: 0.2s; }
+          .wave-bar:nth-child(3) { animation-delay: 0.4s; }
+          .wave-bar:nth-child(4) { animation-delay: 0.2s; }
+          .wave-bar:nth-child(5) { animation-delay: 0.0s; }
         `}</style>
         {render()}
-        <ThemePicker />
+        <GlobalThemePicker />
         {activeVideo && <VideoModal embedUrl={activeVideo.url} title={activeVideo.title} onClose={() => setActiveVideo(null)} />}
 
         {/* Daily Done-Log It Notification: ONLY triggers difficulty intent ('log_only') */}
@@ -2281,4 +2944,103 @@ export default function App() {
       </div>
     </AppCtx.Provider>
   )
+}
+
+// ─── VOICE RECORDER MODAL ────────────────────────────────────────────────────
+function VoiceRecorderModal({ onClose, onProcessed }) {
+  const { t } = useApp();
+  const [processing, setProcessing] = useState(false);
+  const mediaRecorder = useRef(null);
+  const audioChunks = useRef([]);
+
+  useEffect(() => {
+    startRecording();
+    return () => {
+      if (mediaRecorder.current && mediaRecorder.current.state === "recording") {
+        mediaRecorder.current.stop();
+        mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder.current = new MediaRecorder(stream);
+      mediaRecorder.current.ondataavailable = e => audioChunks.current.push(e.data);
+      mediaRecorder.current.onstop = processAudio;
+      mediaRecorder.current.start();
+    } catch (e) {
+      alert("Microphone access denied. Please allow microphone permissions in your browser.");
+      onClose();
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder.current && mediaRecorder.current.state === "recording") {
+      mediaRecorder.current.stop();
+      mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
+      setProcessing(true);
+    }
+  };
+
+  const processAudio = async () => {
+    const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' });
+    const reader = new FileReader();
+    reader.readAsDataURL(audioBlob);
+    reader.onloadend = async () => {
+      const base64data = reader.result.split(',')[1];
+      try {
+        const res = await axios.post('/api/profile/voice-journal', {
+          audio_b64: base64data,
+          mime_type: 'audio/webm'
+        });
+
+        if (res.data.success) {
+          onProcessed(res.data.transcription, res.data.ai_reply);
+        } else {
+          alert(res.data.error); // Warns free users they need to upgrade
+        }
+      } catch (e) {
+        alert("Error connecting to Voice AI.");
+      }
+      onClose();
+    };
+  };
+
+  return (
+    <div className="glass-modal">
+      <div className="neu-card" style={{ padding: "40px", textAlign: "center", maxWidth: 360, width: "100%" }}>
+
+        <div style={{ fontSize: 24, fontWeight: 700, color: t.text, marginBottom: 30 }}>
+          {processing ? "Analyzing Audio..." : "Listening..."}
+        </div>
+
+        {/* Animated Audio Waves */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, height: 60, alignItems: 'center', marginBottom: 40 }}>
+          {processing ? (
+            <Spinner />
+          ) : (
+            <>
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+            </>
+          )}
+        </div>
+
+        {!processing && (
+          <button onClick={stopRecording} className="neu-btn neu-btn-primary" style={{ padding: "16px 32px", fontSize: 20, width: "100%" }}>
+            Done
+          </button>
+        )}
+
+        {!processing && (
+          <button onClick={onClose} className="neu-btn-flat" style={{ marginTop: 20, width: "100%", color: t.subtext }}>Cancel</button>
+        )}
+      </div>
+    </div>
+  );
 }

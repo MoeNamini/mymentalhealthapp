@@ -15,6 +15,12 @@ from jose import jwt, JWTError
 import bcrypt as bcrypt_lib
 from pydantic import BaseModel
 
+from sqlalchemy.orm import Session
+
+import urllib.parse
+import httpx
+import base64
+
 load_dotenv()
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -194,28 +200,45 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USER_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 
+from fastapi import Request  # 🟢 Ensure Request is imported at the top of your auth.py file
+
 @router.get("/google")
-def google_login():
+def google_login(request: Request):  # 🟢 Added request context here
     state = secrets.token_urlsafe(16)
     oauth_states[state] = {"provider": "google"}
 
+    # 🟢 DYNAMIC REDIRECT CHECK: Automatically toggles between local and cloud servers
+    host = request.headers.get("host", "localhost:8000")
+    if "localhost" in host or "127.0.0.1" in host:
+        redirect_uri = "http://localhost:8000/auth/google/callback"
+    else:
+        redirect_uri = "https://mindactions-api.onrender.com/auth/google/callback"
+
     params = {
         "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-        "redirect_uri": f"http://localhost:8000/auth/google/callback",
+        "redirect_uri": redirect_uri,  # 🟢 Using our new dynamic string variable
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
         "access_type": "offline",
     }
+    
     query = "&".join(f"{k}={v}" for k, v in params.items())
     return RedirectResponse(f"{GOOGLE_AUTH_URL}?{query}")
 
 
 @router.get("/google/callback")
-async def google_callback(code: str, state: str):
+async def google_callback(code: str, state: str, request: Request):  # 🟢 FIX 1: Added request argument here!
     if state not in oauth_states:
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     del oauth_states[state]
+
+    # 🟢 FIX 2: Moved the check up here and cleaned out the duplicate copy-paste block
+    host = request.headers.get("host", "localhost:8000")
+    if "localhost" in host or "127.0.0.1" in host:
+        redirect_uri = "http://localhost:8000/auth/google/callback"
+    else:
+        redirect_uri = "https://mindactions-api.onrender.com/auth/google/callback"
 
     async with httpx.AsyncClient() as client:
         # Exchange code for token
@@ -225,7 +248,7 @@ async def google_callback(code: str, state: str):
                 "code": code,
                 "client_id": os.getenv("GOOGLE_CLIENT_ID"),
                 "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                "redirect_uri": "http://localhost:8000/auth/google/callback",
+                "redirect_uri": redirect_uri,  # Uses the clean, dynamic variable
                 "grant_type": "authorization_code",
             },
         )
@@ -394,3 +417,85 @@ async def update_theme(request: Request, user=Depends(get_current_user)):
     conn.close()
 
     return {"theme": theme}
+
+
+
+# ── Spotify OAuth 2.0 ───────────────────────────────────────────────────────
+import urllib.parse
+import httpx
+import base64
+from fastapi import Request
+from fastapi.responses import RedirectResponse
+
+SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
+SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
+
+@router.get("/spotify/url")
+def get_spotify_url(request: Request, user=Depends(get_current_user)):
+    host = request.headers.get("host", "localhost:8000")
+    if "localhost" in host or "127.0.0.1" in host:
+        redirect_uri = "http://localhost:8000/auth/spotify/callback"
+    else:
+        redirect_uri = "https://mindactions-api.onrender.com/auth/spotify/callback"
+
+    state = str(user["sub"]) 
+
+    params = {
+        "client_id": os.getenv("SPOTIFY_CLIENT_ID"),
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "scope": "user-modify-playback-state user-read-playback-state", 
+        "show_dialog": "true"
+    }
+    
+    query = urllib.parse.urlencode(params)
+    return {"url": f"{SPOTIFY_AUTH_URL}?{query}"}
+
+@router.get("/spotify/callback")
+async def spotify_callback(code: str, state: str, request: Request):
+    user_id = state
+
+    host = request.headers.get("host", "localhost:8000")
+    if "localhost" in host or "127.0.0.1" in host:
+        redirect_uri = "http://localhost:8000/auth/spotify/callback"
+    else:
+        redirect_uri = "https://mindactions-api.onrender.com/auth/spotify/callback"
+
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    
+    auth_str = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+
+    async with httpx.AsyncClient() as client:
+        token_res = await client.post(
+            SPOTIFY_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+            },
+            headers={
+                "Authorization": f"Basic {auth_str}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+        )
+        
+        token_data = token_res.json()
+        access_token = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token")
+
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Spotify token exchange failed")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET spotify_access_token = %s, spotify_refresh_token = %s WHERE id = %s",
+        (access_token, refresh_token, int(user_id))
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return RedirectResponse(f"{FRONTEND_URL}/profile")
