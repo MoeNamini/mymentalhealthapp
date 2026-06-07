@@ -749,6 +749,61 @@ async def save_journal(body: JournalBody, user=Depends(get_current_user)):
     return {"saved": True, "vibe_shift": triggered_spotify}
 
 
+import urllib.parse
+import httpx
+
+@app.get("/spotify/search")
+async def search_spotify_catalog(q: str, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # 1. Grab the user's active Spotify token
+    cur.execute("SELECT spotify_access_token FROM users WHERE id = %s", (int(user["sub"]),))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    # If they haven't linked Spotify, return an empty array safely
+    if not row or not row[0]:
+        return {"tracks": []}
+
+    access_token = row[0]
+    
+    async with httpx.AsyncClient() as client:
+        # 2. Ask Spotify for 5 tracks and 5 playlists matching the search
+        spotify_url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(q)}&type=track,playlist&limit=5"
+        res = await client.get(
+            spotify_url,
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        
+        # If the token is expired or Spotify rejects it, fail gracefully
+        if res.status_code != 200:
+            return {"tracks": []}
+
+        data = res.json()
+        results = []
+        
+        # 3. Format the Tracks
+        for item in data.get("tracks", {}).get("items", []):
+            results.append({
+                "uri": item["uri"],
+                "name": item["name"],
+                "artist": item["artists"][0]["name"] if item.get("artists") else "Unknown",
+                "type": "Track"
+            })
+            
+        # 4. Format the Playlists
+        for item in data.get("playlists", {}).get("items", []):
+            if item:
+                results.append({
+                    "uri": item["uri"],
+                    "name": item["name"],
+                    "artist": item.get("owner", {}).get("display_name", "Spotify"),
+                    "type": "Playlist"
+                })
+                
+        return {"tracks": results}
+
 ##
 @app.post("/profile/voice-journal")
 def process_voice_journal(body: VoiceBody, user=Depends(get_current_user)):
