@@ -1789,8 +1789,8 @@ async def get_valid_gcal_token(user_id: int, cur, conn):
         token_url = "https://oauth2." + "googleapis.com/token"
         async with httpx.AsyncClient() as client:
             res = await client.post(token_url, data={
-                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "client_id": os.getenv("GCAL_CLIENT_ID"),
+                "client_secret": os.getenv("GCAL_CLIENT_SECRET"),
                 "refresh_token": row[1],
                 "grant_type": "refresh_token"
             })
