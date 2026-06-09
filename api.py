@@ -1638,7 +1638,7 @@ def get_user_profile_data(user=Depends(get_current_user)):
     
     try:
         cur.execute(
-            "SELECT name, email, tier, about_me FROM users WHERE id = %s;", 
+            "SELECT name, email, tier, about_me, gcal_access_token, spotify_access_token FROM users WHERE id = %s;", 
             (int(user["sub"]),)
         )
         row = cur.fetchone()
@@ -1660,7 +1660,9 @@ def get_user_profile_data(user=Depends(get_current_user)):
         "username": row[0],
         "email": row[1],
         "tier": row[2] or "free",
-        "about_me": row[3] or ""
+        "about_me": row[3] or "",
+        "gcal_linked": bool(row[4]), # 🟢 Tells the frontend if the DB has a token!
+        "spotify_linked": bool(row[5])
     }
 
 @app.post("/spotify/play-reminder")
@@ -1749,7 +1751,7 @@ async def google_calendar_callback(code: str, state: str):
     """Exchanges the code for tokens and saves them to the user."""
     client_id = os.getenv("GCAL_CLIENT_ID")
     client_secret = os.getenv("GCAL_CLIENT_SECRET")
-    redirect_uri = os.getenv("GCAL_CLIENT_ID")
+    redirect_uri = os.getenv("GCAL_REDIRECT_URI")
     
     token_url = "https://oauth2." + "googleapis.com/token"
     
@@ -1800,3 +1802,35 @@ async def get_valid_gcal_token(user_id: int, cur, conn):
                 conn.commit()
                 return new_token
     return row[0]
+
+    # ─── DISCONNECT INTEGRATIONS ───
+
+@app.post("/gcal/disconnect")
+def disconnect_gcal(user=Depends(get_current_user)):
+    """Removes Google Calendar tokens and disables the sync flag on actions."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_id = int(user["sub"])
+    
+    # 1. Erase the tokens from the user
+    cur.execute("UPDATE users SET gcal_access_token = NULL, gcal_refresh_token = NULL WHERE id = %s", (user_id,))
+    # 2. Turn off the sync flag for all their actions so the app stops trying to push to Google
+    cur.execute("UPDATE user_actions SET is_gcal = FALSE WHERE user_id = %s", (user_id,))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+@app.post("/spotify/disconnect")
+def disconnect_spotify(user=Depends(get_current_user)):
+    """Removes Spotify tokens from the user account."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("UPDATE users SET spotify_access_token = NULL, spotify_refresh_token = NULL WHERE id = %s", (int(user["sub"]),))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}

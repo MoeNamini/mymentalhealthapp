@@ -2668,6 +2668,9 @@ function EditProfilePage() {
 
   const [liveTier, setLiveTier] = useState("free");
 
+  const [isGcalLinked, setIsGcalLinked] = useState(false);
+  const [isSpotifyLinked, setIsSpotifyLinked] = useState(false);
+
   // 🟢 PASTE THIS RIGHT HERE
   async function handleLinkSpotify() {
     try {
@@ -2701,11 +2704,35 @@ function EditProfilePage() {
         if (res.data && res.data.tier) {
           setLiveTier(res.data.tier);
         }
+        // 🟢 Update the linked state
+        if (res.data.gcal_linked !== undefined) {
+          setIsGcalLinked(res.data.gcal_linked);
+        }
+        if (res.data.spotify_linked !== undefined) setIsSpotifyLinked(res.data.spotify_linked);
       })
-      .catch(err => console.error("Could not sync live account tier data:", err));
+      .catch(err => console.error("Could not sync live account data:", err));
   }, []);
 
+  // 🟢 NEW: Disconnect Handlers
+  async function handleDisconnectGcal() {
+    if (!window.confirm("Are you sure you want to disconnect Google Calendar? Reminders will no longer sync.")) return;
+    try {
+      await axios.post("/api/gcal/disconnect");
+      setIsGcalLinked(false);
+    } catch (e) {
+      alert("Failed to disconnect Google Calendar.");
+    }
+  }
 
+  async function handleDisconnectSpotify() {
+    if (!window.confirm("Are you sure you want to disconnect Spotify? Your actions will no longer play music.")) return;
+    try {
+      await axios.post("/api/spotify/disconnect");
+      setIsSpotifyLinked(false);
+    } catch (e) {
+      alert("Failed to disconnect Spotify.");
+    }
+  }
 
   async function saveUsername() {
     if (!username.trim()) return
@@ -2891,6 +2918,7 @@ function EditProfilePage() {
 
       {/* ─── LINKED APPS / INTEGRATIONS ─── */}
       {/* ─── LINKED APPS ─── */}
+      {/* ─── LINKED APPS ─── */}
       <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 24 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>Linked Apps</div>
 
@@ -2911,7 +2939,13 @@ function EditProfilePage() {
                 <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
                 <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
               </div>
+            ) : isSpotifyLinked ? (
+              /* 🟢 SYNCED STATE: Shows Disconnect */
+              <button className="neu-inset active-tab" onClick={handleDisconnectSpotify} style={{ padding: "10px 20px", fontSize: 16, color: "#c94c4c", fontWeight: 800 }}>
+                Linked! Disconnect
+              </button>
             ) : (
+              /* 🟢 UNLINKED STATE: Uses handleLinkSpotify, NOT the gcal link! */
               <button className="neu-btn" onClick={handleLinkSpotify} style={{ padding: "10px 20px", fontSize: 16, color: "#1DB954", fontWeight: 800 }}>
                 Link Account
               </button>
@@ -2933,7 +2967,13 @@ function EditProfilePage() {
                 <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
                 <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
               </div>
+            ) : isGcalLinked ? (
+              /* 🟢 SYNCED STATE: Shows Disconnect */
+              <button className="neu-inset active-tab" onClick={handleDisconnectGcal} style={{ padding: "10px 20px", fontSize: 16, color: "#c94c4c", fontWeight: 800 }}>
+                Linked! Disconnect
+              </button>
             ) : (
+              /* 🟢 UNLINKED STATE: Uses Google API Route */
               <button className="neu-btn" onClick={async () => {
                 try {
                   const res = await axios.get("/api/gcal/link");
@@ -2948,24 +2988,7 @@ function EditProfilePage() {
           </div>
 
         </div>
-      </div>{(liveTier === "free" || !liveTier) ? (
-        <div style={{ textAlign: "right" }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
-          <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
-        </div>
-      ) : (
-        <button className="neu-btn" onClick={async () => {
-          try {
-            const res = await axios.get("/api/gcal/link");
-            window.location.href = res.data.url;
-          } catch (e) {
-            alert(e.response?.data?.detail || "Failed to generate Google Link. Check your .env file!");
-          }
-        }}>
-
-        </button>
-      )}
-
+      </div>
       {showDeleteModal && (
         <div className="glass-modal">
           <div className="neu-card" style={{ padding: 40, maxWidth: 480, width: "100%", textAlign: "center" }}>
