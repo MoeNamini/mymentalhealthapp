@@ -1775,7 +1775,7 @@ async def google_calendar_callback(code: str, state: str):
             
     # Redirect back to the frontend profile page
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="http://localhost:5173/?page=edit-profile")
+    return RedirectResponse(url="https://mymentalhealthapp.vercel.app/?page=edit-profile")
 
 async def get_valid_gcal_token(user_id: int, cur, conn):
     """Helper to get a fresh Google Calendar token."""
