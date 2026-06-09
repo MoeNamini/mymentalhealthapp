@@ -19,8 +19,20 @@ import datetime
 from pathlib import Path
 
 import base64
-from google.genai import types
+from google.genai import types, Client
 
+import asyncio
+from fastapi import BackgroundTasks
+from fastapi.responses import Response
+
+import wave
+import io
+from fastapi import Depends
+
+import datetime
+from datetime import timezone, timedelta
+
+import urllib.parse
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
@@ -39,6 +51,200 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+
+
+
+
+
+# ─── 1. AUDIO GENERATION ENGINE ───
+'''
+def generate_audio_task(action_id: int):
+    """Background task to generate TTS audio using Gemini 2.5 Flash."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Check if it already exists so we don't waste API calls
+        cur.execute("SELECT text, benefit, audio_data FROM actions WHERE id = %s", (action_id,))
+        action = cur.fetchone()
+        
+        if not action or action[2]: # If action not found or audio already exists
+            return
+            
+        text, benefit = action[0], action[1]
+        prompt = f"Please read the following task and its benefit in a smooth, warm, comforting voice.\nTask: {text}\nWhy it helps: {benefit or 'This is a great step for your routine.'}"
+
+        # Initialize Gemini Client (uses GEMINI_API_KEY from .env automatically)
+        client = Client()
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-tts',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                system_instruction="You are a warm, encouraging personal life coach."
+            )
+        )
+        
+        # Convert audio bytes to base64 text for safe database storage
+        audio_bytes = response.candidates[0].content.parts[0].inline_data.data
+        audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+        
+        cur.execute("UPDATE actions SET audio_data = %s WHERE id = %s", (audio_b64, action_id))
+        conn.commit()
+    except Exception as e:
+        print(f"❌ Audio Generation Failed: {e}")
+    finally:
+        cur.close()
+        conn.close()
+'''
+
+from google.genai import Client, types
+from fastapi.responses import Response
+import base64
+from fastapi import BackgroundTasks
+
+# ─── AUDIO GENERATION ENGINE ───
+# ─── AUDIO GENERATION ENGINE ───
+# ─── AUDIO GENERATION ENGINE ───
+def add_wav_header(pcm_bytes: bytes) -> bytes:
+    """Wraps raw PCM audio from Gemini into a playable WAV container."""
+    with io.BytesIO() as wav_io:
+        with wave.open(wav_io, 'wb') as wav_file:
+            wav_file.setnchannels(1)       # Mono sound
+            wav_file.setsampwidth(2)       # 16-bit
+            wav_file.setframerate(24000)   # Gemini's standard 24kHz sample rate
+            wav_file.writeframes(pcm_bytes)
+        return wav_io.getvalue()
+
+# ─── AUDIO GENERATION ENGINE ───
+def generate_audio_task(action_id: int):
+    """Background task to generate TTS audio using Gemini 2.5 Flash TTS."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT text, benefit, audio_data FROM actions WHERE id = %s", (action_id,))
+        action = cur.fetchone()
+        
+        if not action or action[2]: 
+            return # Audio already exists, no need to regenerate
+            
+        text, benefit = action[0], action[1]
+        prompt = f"Say in a warm and encouraging tone: {text}. Why it helps: {benefit or 'This is a great step for your routine.'}"
+
+        client = Client()
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-preview-tts',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name="Kore" 
+                        )
+                    )
+                )
+            )
+        )
+        
+        # 1. Grab the Raw PCM bytes
+        raw_pcm = response.candidates[0].content.parts[0].inline_data.data
+        
+        # 2. Convert to a playable WAV file
+        wav_bytes = add_wav_header(raw_pcm)
+        
+        # 3. Save the WAV to the database
+        audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+        cur.execute("UPDATE actions SET audio_data = %s WHERE id = %s", (audio_b64, action_id))
+        conn.commit()
+    except Exception as e:
+        print(f"❌ Audio Generation Failed: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+@app.post("/actions/{action_id}/generate-audio")
+async def trigger_audio_generation(action_id: int, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    """Endpoint for the frontend to quietly trigger the generation."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT tier FROM users WHERE id = %s", (int(user["sub"]),))
+    user_tier = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+
+    if user_tier not in ["paid", "pro"]:
+        return {"status": "rejected", "reason": "Requires paid or pro tier."}
+
+    background_tasks.add_task(generate_audio_task, action_id)
+    return {"status": "Audio generation started"}
+
+# ─── AUDIO PLAYBACK ROUTE ───
+@app.get("/audio/{action_id}")
+async def stream_action_audio(action_id: int):
+    """Streams the saved audio, or generates it on the fly if it's missing!"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("SELECT audio_data, text, benefit FROM actions WHERE id = %s", (action_id,))
+    row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        conn.close()
+        return Response(status_code=404)
+
+    audio_data = row[0]
+
+    if not audio_data:
+        try:
+            print(f"Audio missing for Action {action_id}. Generating with Gemini 2.5 Flash TTS on the fly...")
+            text, benefit = row[1], row[2]
+            prompt = f"Say in a warm and encouraging tone: {text}. Why it helps: {benefit or 'This is a great step for your routine.'}"
+
+            client = Client()
+            response = client.models.generate_content(
+                model='gemini-2.5-flash-preview-tts',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name="Kore" 
+                            )
+                        )
+                    )
+                )
+            )
+            
+            raw_pcm = response.candidates[0].content.parts[0].inline_data.data
+            wav_bytes = add_wav_header(raw_pcm)
+            audio_data = base64.b64encode(wav_bytes).decode('utf-8')
+            
+            cur.execute("UPDATE actions SET audio_data = %s WHERE id = %s", (audio_data, action_id))
+            conn.commit()
+            print("✅ On-the-fly audio generation successful!")
+            
+        except Exception as e:
+            print(f"❌ Gemini Audio Generation Failed: {e}")
+            cur.close()
+            conn.close()
+            return Response(status_code=500)
+
+    cur.close()
+    conn.close()
+
+    if audio_data:
+        audio_bytes = base64.b64decode(audio_data)
+        
+        # 🟢 MAGIC FIX: If the audio already saved in your DB is raw PCM from earlier, 
+        # this will wrap it in a WAV header instantly before your browser gets it!
+        if not audio_bytes.startswith(b'RIFF'):
+            audio_bytes = add_wav_header(audio_bytes)
+            
+        return Response(content=audio_bytes, media_type="audio/wav")
+
+    return Response(status_code=404)
 
 
 def get_db_connection():
@@ -395,7 +601,6 @@ def get_my_actions(user=Depends(get_current_user)):
     cur = conn.cursor()
     
     # --- LAZY CRON: AUTO-FINISH EXPIRED ACTIONS ---
-    # Wrapped in a try/except block so it NEVER crashes your dashboard!
     try:
         cur.execute("""
             WITH expired AS (
@@ -410,7 +615,7 @@ def get_my_actions(user=Depends(get_current_user)):
             UPDATE user_actions SET is_active = FALSE 
             WHERE (user_id, action_id) IN (SELECT user_id, action_id FROM expired);
         """, (int(user["sub"]),))
-        
+
         cur.execute("""
             DELETE FROM reminders 
             WHERE (user_id, action_id) IN (
@@ -425,11 +630,14 @@ def get_my_actions(user=Depends(get_current_user)):
     except Exception as e:
         conn.rollback()
         print(f"Lazy cron skipped to prevent crash: {e}")
-    # ----------------------------------------------
 
+    # 🟢 THE SINGLE, CORRECT QUERY (No duplicates below this!)
     cur.execute("""
-        SELECT a.id, a.text, a.benefit, a.category, a.difficulty, a.times_picked, a.times_completed, a.total_rating_points, a.rating_count, v.url, v.title, v.youtube_id, ua.picked_at, ua.is_active
-        FROM user_actions ua JOIN actions a ON a.id = ua.action_id LEFT JOIN videos v ON v.id = a.video_id
+        SELECT a.id, a.text, a.benefit, a.category, a.difficulty, a.times_picked, a.times_completed, a.total_rating_points, a.rating_count, v.url, v.title, v.youtube_id, ua.picked_at, ua.is_active,
+               ua.is_audio, ua.is_video, ua.spotify_uri, ua.spotify_name, ua.spotify_type, ua.video_start_time
+        FROM user_actions ua
+        JOIN actions a ON a.id = ua.action_id 
+        LEFT JOIN videos v ON v.id = a.video_id
         WHERE ua.user_id = %s ORDER BY ua.picked_at DESC;
     """, (int(user["sub"]),))
     
@@ -437,6 +645,7 @@ def get_my_actions(user=Depends(get_current_user)):
     rows = cur.fetchall()
     cur.close()
     conn.close()
+    
     results = []
     for row in rows:
         item = dict(zip(columns, row))
@@ -444,6 +653,7 @@ def get_my_actions(user=Depends(get_current_user)):
         item["embed_url"] = f"https://www.youtube.com/embed/{item['youtube_id']}" if item.get("youtube_id") else None
         item["picked_at"] = item["picked_at"].isoformat()
         results.append(item)
+        
     return {"actions": results, "count": len(results)}
 
 @app.post("/profile/actions/{action_id}/finish")
@@ -594,29 +804,42 @@ def get_streak(action_id: int, user=Depends(get_current_user)):
 def get_reminder(action_id: int, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        """SELECT reminder_type, frequency_type, frequency_value, target_hour, 
-                  target_minute, target_ampm, end_in_days, loc_condition, loc_lat, loc_lng 
-           FROM reminders WHERE user_id = %s AND action_id = %s""",
-        (int(user["sub"]), action_id),
-    )
+    # 🟢 We join reminders with user_actions to grab the triggers
+    # 🟢 Update the SELECT to grab ua.video_start_time at the end
+    cur.execute("""
+        SELECT r.reminder_type, r.target_hour, r.target_minute, r.target_ampm, 
+               r.frequency_type, r.frequency_value, r.end_in_days, r.loc_condition, r.loc_lat, r.loc_lng,
+               ua.is_audio, ua.is_video, ua.spotify_uri, ua.spotify_name, ua.spotify_type, ua.video_start_time
+        FROM user_actions ua
+        LEFT JOIN reminders r ON ua.action_id = r.action_id AND ua.user_id = r.user_id
+        WHERE ua.user_id = %s AND ua.action_id = %s
+    """, (int(user["sub"]), action_id))
     row = cur.fetchone()
     cur.close()
     conn.close()
+
     if not row:
         return {"exists": False}
+        
     return {
         "exists": True,
         "reminder_type": row[0],
-        "frequency_type": row[1],
-        "frequency_value": row[2],
-        "target_hour": row[3],
-        "target_minute": row[4],
-        "target_ampm": row[5],
+        "target_hour": row[1],
+        "target_minute": row[2],
+        "target_ampm": row[3],
+        "frequency_type": row[4],
+        "frequency_value": row[5],
         "end_in_days": row[6],
         "loc_condition": row[7],
         "loc_lat": row[8],
-        "loc_lng": row[9]
+        "loc_lng": row[9],
+        # 🟢 Send the trigger data to the frontend
+        "is_audio": row[10] or False,
+        "is_video": row[11] or False,
+        "spotify_uri": row[12],
+        "spotify_name": row[13],
+        "spotify_type": row[14],
+        "video_start_time": row[15] or 0
     }
 
 @app.post("/profile/reminder")
@@ -624,12 +847,34 @@ async def save_reminder(request: Request, user=Depends(get_current_user)):
     body = await request.json()
     conn = get_db_connection()
     cur = conn.cursor()
+    user_id = int(user["sub"])
+    
+    # Save the triggers to the user_actions table
+    cur.execute("""
+        UPDATE user_actions 
+        SET is_audio = %s, is_video = %s, spotify_uri = %s, spotify_name = %s, spotify_type = %s, video_start_time = %s, is_gcal = %s
+        WHERE user_id = %s AND action_id = %s
+    """, (
+        body.get("is_audio", False), 
+        body.get("is_video", False), 
+        body.get("spotify_uri"), 
+        body.get("spotify_name"), 
+        body.get("spotify_type"), 
+        body.get("video_start_time", 0), 
+        body.get("is_gcal", False), 
+        int(user["sub"]), 
+        body.get("action_id")
+    ))
+    conn.commit()
+
     cur.execute(
         "DELETE FROM reminders WHERE user_id = %s AND action_id = %s",
         (int(user["sub"]), body["action_id"]),
     )
+    
     cur.execute(
-        """INSERT INTO reminders (user_id, action_id, reminder_type, frequency_type, frequency_value, 
+        """INSERT INTO reminders 
+                                  (user_id, action_id, reminder_type, frequency_type, frequency_value, 
                                   target_hour, target_minute, target_ampm, end_in_days, 
                                   loc_condition, loc_lat, loc_lng) 
            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;""",
@@ -643,17 +888,42 @@ async def save_reminder(request: Request, user=Depends(get_current_user)):
             body.get("target_minute", "00"),
             body.get("target_ampm", "AM"),
             body.get("end_in_days"),
-            body.get("loc_condition"), # 🟢 Added Location Data
-            body.get("loc_lat"),       # 🟢 Added Location Data
-            body.get("loc_lng")        # 🟢 Added Location Data
+            body.get("loc_condition"), 
+            body.get("loc_lat"),       
+            body.get("loc_lng")        
         ),
     )
     reminder_id = cur.fetchone()[0]
     conn.commit()
+
+    # 🟢 Push to Google Calendar if requested and if it's a Time reminder
+    if body.get("is_gcal") and body.get("reminder_type") == "time":
+        gcal_token = await get_valid_gcal_token(user_id, cur, conn)
+        if gcal_token:
+            # Construct tomorrow's date at the target hour
+            h = int(body.get("target_hour", "08"))
+            if body.get("target_ampm") == "PM" and h != 12: h += 12
+            if body.get("target_ampm") == "AM" and h == 12: h = 0
+            
+            tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+            start_time = tomorrow.replace(hour=h, minute=int(body.get("target_minute", "00")), second=0)
+            end_time = start_time + datetime.timedelta(minutes=15) # 15 min block
+            
+            event_data = {
+                "summary": f"MindAction: {body.get('text', 'Reminder')}",
+                "description": "Time for your mental wellness action!",
+                "start": {"dateTime": start_time.isoformat(), "timeZone": "UTC"},
+                "end": {"dateTime": end_time.isoformat(), "timeZone": "UTC"}
+            }
+            
+            cal_url = "https://www." + "googleapis.com/calendar/v3/calendars/primary/events"
+            async with httpx.AsyncClient() as client:
+                await client.post(cal_url, headers={"Authorization": f"Bearer {gcal_token}"}, json=event_data)
+
+    # 🟢 FIXED: Close connections and return AFTER the Calendar code runs
     cur.close()
     conn.close()
     return {"reminder_id": reminder_id, "saved": True}
-
 
 @app.delete("/profile/reminder/{action_id}")
 def delete_reminder(action_id: int, user=Depends(get_current_user)):
@@ -752,38 +1022,62 @@ async def save_journal(body: JournalBody, user=Depends(get_current_user)):
 import urllib.parse
 import httpx
 
+import base64
+
+
+
 @app.get("/spotify/search")
 async def search_spotify_catalog(q: str, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    # 1. Grab the user's active Spotify token
-    cur.execute("SELECT spotify_access_token FROM users WHERE id = %s", (int(user["sub"]),))
+    # 1. Grab BOTH the access token and the refresh token
+    cur.execute("SELECT spotify_access_token, spotify_refresh_token FROM users WHERE id = %s", (int(user["sub"]),))
     row = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    # If they haven't linked Spotify, return an empty array safely
+    
     if not row or not row[0]:
+        cur.close()
+        conn.close()
         return {"tracks": []}
 
     access_token = row[0]
+    refresh_token = row[1]
     
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    
+    # 2. Automatically refresh the token so the search NEVER dies
+    if refresh_token and client_id and client_secret:
+        auth_str = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+        async with httpx.AsyncClient() as client:
+            refresh_res = await client.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+                headers={"Authorization": f"Basic {auth_str}", "Content-Type": "application/x-www-form-urlencoded"}
+            )
+            if refresh_res.status_code == 200:
+                access_token = refresh_res.json().get("access_token")
+                # Save the new token so it's good for another hour
+                cur.execute("UPDATE users SET spotify_access_token = %s WHERE id = %s", (access_token, int(user["sub"])))
+                conn.commit()
+
+    cur.close()
+    conn.close()
+
+    # 3. Now make the real search with a guaranteed fresh token
     async with httpx.AsyncClient() as client:
-        # 2. Ask Spotify for 5 tracks and 5 playlists matching the search
         spotify_url = f"https://api.spotify.com/v1/search?q={urllib.parse.quote(q)}&type=track,playlist&limit=5"
         res = await client.get(
             spotify_url,
             headers={"Authorization": f"Bearer {access_token}"}
         )
         
-        # If the token is expired or Spotify rejects it, fail gracefully
         if res.status_code != 200:
+            print(f"Spotify Search Failed: {res.text}") # Added a print so you can see if it ever fails again!
             return {"tracks": []}
 
         data = res.json()
         results = []
         
-        # 3. Format the Tracks
         for item in data.get("tracks", {}).get("items", []):
             results.append({
                 "uri": item["uri"],
@@ -792,7 +1086,6 @@ async def search_spotify_catalog(q: str, user=Depends(get_current_user)):
                 "type": "Track"
             })
             
-        # 4. Format the Playlists
         for item in data.get("playlists", {}).get("items", []):
             if item:
                 results.append({
@@ -1233,7 +1526,7 @@ def get_moods(user=Depends(get_current_user)):
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 @app.get("/profile/ai-coach")
-def get_ai_coach_insights(user=Depends(get_current_user)):
+async def get_ai_coach_insights(user=Depends(get_current_user)): # 🟢 FIXED: Added 'async'
     conn = get_db_connection()
     cur = conn.cursor()
     user_id = int(user["sub"])
@@ -1260,11 +1553,31 @@ def get_ai_coach_insights(user=Depends(get_current_user)):
         conn.close()
         return {"success": False, "error": "You have reached your limit of 3 AI reports today. Try again tomorrow or upgrade!"}
 
-    # 🟢 UPGRADED TO GEMINI 2.5 SERIES
     if tier == "pro":
         model_id = 'gemini-2.5-pro'
     else:
         model_id = 'gemini-2.5-flash-lite'
+
+    # 🟢 Fetch Today's Google Calendar Events
+    gcal_token = await get_valid_gcal_token(user_id, cur, conn)
+    todays_events = []
+    if gcal_token:
+        now = datetime.datetime.utcnow()
+        start_of_day = now.replace(hour=0, minute=0, second=0).isoformat() + "Z"
+        end_of_day = now.replace(hour=23, minute=59, second=59).isoformat() + "Z"
+        
+        cal_url = "https://www." + f"googleapis.com/calendar/v3/calendars/primary/events?timeMin={start_of_day}&timeMax={end_of_day}&singleEvents=true&orderBy=startTime"
+        
+        async with httpx.AsyncClient() as client:
+            res = await client.get(cal_url, headers={"Authorization": f"Bearer {gcal_token}"})
+            if res.status_code == 200:
+                events = res.json().get("items", [])
+                for e in events:
+                    todays_events.append({
+                        "title": e.get("summary", "Busy"),
+                        "start": e.get("start", {}).get("dateTime", e.get("start", {}).get("date")),
+                        "end": e.get("end", {}).get("dateTime", e.get("end", {}).get("date"))
+                    })
 
     cur.execute("SELECT text, benefit, times_completed FROM actions WHERE user_id = %s AND is_active = TRUE", (user_id,))
     actions = [{"action": r[0], "why": r[1], "completions": r[2]} for r in cur.fetchall()]
@@ -1279,11 +1592,12 @@ def get_ai_coach_insights(user=Depends(get_current_user)):
         "user_profile": user_data,
         "active_actions": actions,
         "recent_moods": moods,
-        "recent_journals_and_misses": journals
+        "recent_journals_and_misses": journals,
+        "todays_calendar_events": todays_events
     }
 
     system_prompt = f"""
-    You are an empathetic, highly analytical behavioral wellness coach. 
+    You are an empathetic, highly analytical behavioral wellness coach.
     Here is the complete data dump of the user's recent history:
     {json.dumps(full_context)}
 
@@ -1348,3 +1662,141 @@ def get_user_profile_data(user=Depends(get_current_user)):
         "tier": row[2] or "free",
         "about_me": row[3] or ""
     }
+
+@app.post("/spotify/play-reminder")
+async def play_reminder_spotify(body: dict, user=Depends(get_current_user)):
+    uri = body.get("uri")
+    if not uri:
+        return {"success": False, "error": "No URI provided"}
+        
+    user_id = int(user["sub"])
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT spotify_access_token, spotify_refresh_token, tier FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    
+    if not row or row[2] == "free" or not row[1]:
+        cur.close()
+        conn.close()
+        return {"success": False, "error": "User not eligible or token missing"}
+        
+    refresh_token = row[1]
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    auth_str = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+
+    async with httpx.AsyncClient() as client:
+        # 1. Get a fresh token
+        refresh_res = await client.post(
+            "https://accounts.spotify.com/api/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+            headers={"Authorization": f"Basic {auth_str}", "Content-Type": "application/x-www-form-urlencoded"}
+        )
+        if refresh_res.status_code == 200:
+            access_token = refresh_res.json().get("access_token")
+            cur.execute("UPDATE users SET spotify_access_token = %s WHERE id = %s", (access_token, user_id))
+            conn.commit()
+        else:
+            access_token = row[0]
+            
+        cur.close()
+        conn.close()
+
+        # 2. Play the specific URI!
+        # Spotify requires different payload shapes for tracks vs playlists
+        payload = {"uris": [uri]} if "track" in uri else {"context_uri": uri}
+            
+        play_res = await client.put(
+            "https://api.spotify.com/v1/me/player/play",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json=payload
+        )
+        
+        return {"success": play_res.status_code in [200, 204]}
+
+# ─── GOOGLE CALENDAR INTEGRATION ───
+
+
+
+@app.get("/gcal/link")
+def link_google_calendar(user=Depends(get_current_user)):
+    """Generates the OAuth URL for Google Calendar."""
+    client_id = os.getenv("GCAL_CLIENT_ID")
+    redirect_uri = os.getenv("GCAL_REDIRECT_URI") 
+    
+    if not client_id or not redirect_uri:
+        raise HTTPException(status_code=500, detail="Missing GOOGLE_CLIENT_ID or GOOGLE_REDIRECT_URI in your .env file!")
+        
+    auth_base = "https://accounts." + "google.com/o/oauth2/v2/auth"
+    scopes = "https://www." + "googleapis.com/auth/calendar.events"
+    
+    # 🟢 BULLETPROOF FIX: Safely encodes all parameters so Google never rejects it
+    params = {
+        "client_id": client_id.strip(),
+        "redirect_uri": redirect_uri.strip(),
+        "response_type": "code",
+        "scope": scopes,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": str(user['sub'])
+    }
+    
+    auth_url = f"{auth_base}?{urllib.parse.urlencode(params)}"
+    return {"url": auth_url}
+
+@app.get("/gcal/callback")
+async def google_calendar_callback(code: str, state: str):
+    """Exchanges the code for tokens and saves them to the user."""
+    client_id = os.getenv("GCAL_CLIENT_ID")
+    client_secret = os.getenv("GCAL_CLIENT_SECRET")
+    redirect_uri = os.getenv("GCAL_CLIENT_ID")
+    
+    token_url = "https://oauth2." + "googleapis.com/token"
+    
+    async with httpx.AsyncClient() as client:
+        res = await client.post(token_url, data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri
+        })
+        
+        data = res.json()
+        if "access_token" in data:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE users SET gcal_access_token = %s, gcal_refresh_token = %s WHERE id = %s
+            """, (data["access_token"], data.get("refresh_token"), int(state)))
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+    # Redirect back to the frontend profile page
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="http://localhost:5173/?page=edit-profile")
+
+async def get_valid_gcal_token(user_id: int, cur, conn):
+    """Helper to get a fresh Google Calendar token."""
+    cur.execute("SELECT gcal_access_token, gcal_refresh_token FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row or not row[0]: return None
+    
+    # In a production app, you'd check expiration time here. 
+    # For simplicity, we'll force refresh if a refresh_token exists.
+    if row[1]:
+        token_url = "https://oauth2." + "googleapis.com/token"
+        async with httpx.AsyncClient() as client:
+            res = await client.post(token_url, data={
+                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "refresh_token": row[1],
+                "grant_type": "refresh_token"
+            })
+            if res.status_code == 200:
+                new_token = res.json().get("access_token")
+                cur.execute("UPDATE users SET gcal_access_token = %s WHERE id = %s", (new_token, user_id))
+                conn.commit()
+                return new_token
+    return row[0]

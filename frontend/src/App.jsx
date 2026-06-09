@@ -22,6 +22,30 @@ const THEMES = {
 
 // (Keep whatever other imports you already have here, like useApp, etc.)
 
+
+// ─── REUSABLE INFO TOOLTIP ──────────────────────────────────────────────────
+function InfoTooltip({ text, theme }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span style={{ position: "relative", marginLeft: 10, display: "inline-flex", alignItems: "center" }}>
+      <div
+        onClick={(e) => { e.stopPropagation(); setShow(!show); }}
+        style={{ width: 20, height: 20, borderRadius: "50%", border: `1.5px solid ${theme.subtext}`, color: theme.subtext, fontSize: 12, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", fontWeight: "bold", fontStyle: "italic" }}
+      >
+        i
+      </div>
+      {show && (
+        <div className="neu-card" style={{ position: "absolute", top: 28, left: -100, width: 220, padding: 12, fontSize: 14, zIndex: 50, borderRadius: 12, textAlign: "center", color: theme.text, fontWeight: 500, border: `1px solid ${theme.accent}` }}>
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+
+
+
+
 // ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
 // ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
 // ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
@@ -431,29 +455,81 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [loadingInitial, setLoadingInitial] = useState(true)
 
+  const [videoTime, setVideoTime] = useState("00:00"); // 🟢 NEW
+
+  const [isGcal, setIsGcal] = useState(action.is_gcal || false);
+
   const [locCondition, setLocCondition] = useState("arrive"); // "arrive" or "leave"
   const [locCoords, setLocCoords] = useState(null); // { lat, lng }
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY
   });
+
+  // 🎛️ Add these right under your existing useState hooks
+  const [isAudio, setIsAudio] = useState(action.is_audio || false);
+  const [isVideo, setIsVideo] = useState(action.is_video || false);
+  const [isSpotify, setIsSpotify] = useState(!!action.spotify_uri);
+  const [selectedSpotify, setSelectedSpotify] = useState(action.spotify_uri ? { uri: action.spotify_uri, name: action.spotify_name, type: action.spotify_type } : null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  // 🟢 BULLETPROOF TIME CONVERTER
+  const timeParts = videoTime.split(':').map(str => str.trim());
+  const startSeconds = timeParts.length === 2 ? (parseInt(timeParts[0] || 0) * 60) + parseInt(timeParts[1] || 0) : 0;
   useEffect(() => {
     axios.get(`/api/profile/reminder/${action.id}`)
       .then(res => {
         if (res.data.exists) {
-          setTab(res.data.reminder_type || "time")
-          setHour(res.data.target_hour || "08")
-          setMinute(res.data.target_minute || "00")
-          setAmpm(res.data.target_ampm || "AM")
+          setTab(res.data.reminder_type || "time");
+          setHour(res.data.target_hour || "08");
+          setMinute(res.data.target_minute || "00");
+          setAmpm(res.data.target_ampm || "AM");
           if (res.data.frequency_type) { setRepeat(true); setRepeatUnit(res.data.frequency_type); setRepeatNum(res.data.frequency_value || 1) }
           if (res.data.end_in_days) { setEndIn(true); setEndInDays(res.data.end_in_days); }
+
+          setIsVideo(res.data.is_video);
+
+          // 🟢 NEW: Convert seconds (e.g. 215) back to "03:35"
+          if (res.data.video_start_time) {
+            const m = Math.floor(res.data.video_start_time / 60).toString().padStart(2, '0');
+            const s = (res.data.video_start_time % 60).toString().padStart(2, '0');
+            setVideoTime(`${m}:${s}`);
+          }
+
+          // 🟢 NEW: Set all the Action Triggers when the modal loads!
+          setIsAudio(res.data.is_audio);
+          setIsVideo(res.data.is_video);
+          setIsSpotify(!!res.data.spotify_uri);
+          if (res.data.spotify_uri) {
+            setSelectedSpotify({
+              uri: res.data.spotify_uri,
+              name: res.data.spotify_name,
+              type: res.data.spotify_type
+            });
+          }
         }
       }).catch(() => { }).finally(() => setLoadingInitial(false))
-  }, [action.id])
+  }, [action.id]);
+
+  // 🎵 Add this so the Spotify search input functions correctly
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    setSearching(true);
+    const delayDebounce = setTimeout(() => {
+      axios.get(`/api/spotify/search?q=${encodeURIComponent(searchQuery)}`)
+        .then(res => setSearchResults(res.data.tracks || []))
+        .catch(() => { })
+        .finally(() => setSearching(false));
+    }, 400);
+    return () => clearTimeout(delayDebounce);
+  }, [searchQuery]);
 
   async function save() {
     setSaving(true)
     try {
+      // 1. Send EVERYTHING in one single payload to your existing endpoint
       await axios.post("/api/profile/reminder", {
         action_id: action.id,
         reminder_type: tab,
@@ -463,23 +539,34 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
         frequency_type: repeat && tab === "time" ? repeatUnit : null,
         frequency_value: repeat && tab === "time" ? repeatNum : null,
         end_in_days: endIn ? endInDays : null,
-
-        // 🟢 NEW LOCATION DATA ADDED HERE
         loc_condition: tab === "location" ? locCondition : null,
         loc_lat: tab === "location" && locCoords ? locCoords.lat : null,
-        loc_lng: tab === "location" && locCoords ? locCoords.lng : null
-      })
-      if (tab === "time") {
-        const now = new Date(); const target = new Date()
-        let h = parseInt(hour); if (ampm === "PM" && h !== 12) h += 12; if (ampm === "AM" && h === 12) h = 0
-        target.setHours(h, parseInt(minute), 0, 0)
-        let repeatMs = null;
-        if (repeat) repeatMs = repeatUnit === "minute" ? repeatNum * 60000 : repeatUnit === "hour" ? repeatNum * 3600000 : repeatNum * 86400000;
-        if (target <= now) { if (repeatMs) { while (target <= now) target.setTime(target.getTime() + repeatMs); } else { target.setDate(target.getDate() + 1); } }
-        scheduleNotification({ ...action, streak: action.streak || 0 }, target - now, repeatMs)
-      }
-      setSavedSuccess(true)
-    } catch (e) { console.error(e) } finally { setSaving(false) }
+        loc_lng: tab === "location" && locCoords ? locCoords.lng : null,
+
+        // Add the Triggers directly to the main payload!
+        is_audio: isAudio,
+        is_video: isVideo,
+        is_gcal: isGcal, // 🟢 Added to payload
+        // Also add `text: action.text` to the payload so the backend knows what to name the Calendar event!
+        text: action.text,
+        video_start_time: startSeconds, // 🟢 NEW
+        spotify_uri: isSpotify && selectedSpotify ? selectedSpotify.uri : null,
+        spotify_name: isSpotify && selectedSpotify ? selectedSpotify.name : null,
+        spotify_type: isSpotify && selectedSpotify ? selectedSpotify.type : null
+      });
+
+      // 2. Quietly trigger the Gemini Audio generation in the background
+      if (isAudio) axios.post(`/api/actions/${action.action_id || action.id}/generate-audio`).catch(() => { });
+
+      // 3. Close the modal and refresh
+      if (typeof onSaved === 'function') onSaved();
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save reminder.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loadingInitial) return <div className="glass-modal"><div className="neu-card" style={{ padding: 50 }}><Spinner /></div></div>
@@ -607,6 +694,93 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
           </div>
         )}
 
+        {/* ─── ACTION TRIGGERS (ONLY THIS BLOCK) ─── */}
+        <div style={{ marginTop: 32, marginBottom: 32 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: t.subtext, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>
+            Action Triggers
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ fontSize: 18, color: t.text }}>Google Calendar</span>
+              <InfoTooltip text="Pushes this reminder to your actual Google Calendar" theme={t} />
+            </div>
+            <button onClick={() => setIsGcal(!isGcal)} className={isGcal ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+              {isGcal ? "Synced" : "Off"}
+            </button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <span style={{ fontSize: 18, color: t.text }}>Audio</span>
+                <InfoTooltip text="Reads the Action and its Why out loud" theme={t} />
+              </div>
+              <button onClick={() => setIsAudio(!isAudio)} className={isAudio ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+                {isAudio ? "Enabled" : "Disabled"}
+              </button>
+            </div>
+
+            {/* 🟢 CLEAN, ENGRAVED VIDEO TOGGLE */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <span style={{ fontSize: 18, color: t.text }}>Video</span>
+                  <InfoTooltip text="Play the Youtube video of the Action" theme={t} />
+                </div>
+                <button onClick={() => setIsVideo(!isVideo)} className={isVideo ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+                  {isVideo ? "Enabled" : "Disabled"}
+                </button>
+              </div>
+
+              {/* Engraved Start Time Box (Only shows if Enabled) */}
+              {isVideo && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingLeft: 12 }}>
+                  <span style={{ fontSize: 16, color: t.subtext, fontStyle: "italic" }}>Start Time (MM:SS)</span>
+                  <input
+                    type="text"
+                    value={videoTime}
+                    onChange={e => setVideoTime(e.target.value)}
+                    placeholder="00:00"
+                    className="neu-inset" /* 🟢 Uses your engraved theme class */
+                    style={{ width: 80, padding: "8px", fontSize: 16, textAlign: "center", color: t.text, border: "none", outline: "none", background: "transparent" }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <span style={{ fontSize: 18, color: t.text }}>Spotify</span>
+                <InfoTooltip text="Play the song, playlist, or podcast from your Spotify" theme={t} />
+              </div>
+              <button onClick={() => setIsSpotify(!isSpotify)} className={isSpotify ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+                {isSpotify ? "On" : "Off"}
+              </button>
+            </div>
+          </div>
+
+          {/* Spotify Search Dropdown */}
+          {isSpotify && (
+            <div className="neu-inset" style={{ padding: 20, borderRadius: 16, marginTop: 24 }}>
+              <label className="input-label" style={{ marginTop: 0, fontSize: 16 }}>Search Spotify Tracks & Playlists</label>
+              <input className="neu-input" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Type track, playlist, or artist..." style={{ width: "100%", padding: "12px 16px", fontSize: 16, marginBottom: 12 }} />
+              {selectedSpotify && <div style={{ fontSize: 14, color: t.accent, fontWeight: 700, marginBottom: 8 }}>Linked: {selectedSpotify.name}</div>}
+              {searchResults.length > 0 && (
+                <div style={{ maxHeight: 160, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {searchResults.map(item => (
+                    <div key={item.uri} onClick={() => setSelectedSpotify({ uri: item.uri, name: item.name, type: item.type })} style={{ padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 15, color: t.text, background: selectedSpotify?.uri === item.uri ? t.selectionBg : "transparent" }}>
+                      {item.name} <span style={{ opacity: 0.6, fontSize: 13 }}>by {item.artist}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {searching && <div style={{ fontSize: 14, color: t.subtext, fontStyle: "italic" }}>Searching...</div>}
+            </div>
+          )}
+        </div>
+        {/* ───────────────────────────────────────── */}
+
         {/* BOTTOM SAVE/CANCEL BUTTONS */}
         <div style={{ marginTop: 46, display: "flex", flexDirection: "column", gap: 20 }}>
           <button onClick={save} disabled={saving} className="neu-btn neu-btn-primary" style={{ padding: "22px", opacity: saving ? 0.6 : 1, fontSize: 22 }}>
@@ -726,6 +900,7 @@ function ReviewsModal({ action, onClose }) {
 }
 
 // ─── CUSTOM ACTION MODAL ──────────────────────────────────────────────────────
+// ─── CUSTOM ACTION MODAL ──────────────────────────────────────────────────────
 function CustomActionModal({ onClose, onSuccess }) {
   const { t } = useApp();
   const [actionName, setActionName] = useState("");
@@ -764,6 +939,8 @@ function CustomActionModal({ onClose, onSuccess }) {
     const payload = {
       text: actionName.trim(),
       benefit: whyItHelps.trim(),
+      is_audio: isAudio,
+      is_video: isVideo,
       spotify_uri: isSpotify ? selectedSpotify?.uri : null,
       spotify_name: isSpotify ? selectedSpotify?.name : null,
       spotify_type: isSpotify ? selectedSpotify?.type : null
@@ -771,6 +948,8 @@ function CustomActionModal({ onClose, onSuccess }) {
 
     try {
       const res = await axios.post("/api/actions/custom", payload);
+      // 🟢 NEW: Tell the backend to generate audio if enabled
+      if (isAudio) axios.post(`/api/actions/${res.data.action_id}/generate-audio`).catch(() => { });
       onSuccess({
         id: res.data.action_id,
         text: actionName.trim(),
@@ -793,79 +972,51 @@ function CustomActionModal({ onClose, onSuccess }) {
 
         <div style={{ marginBottom: 28 }}>
           <label className="input-label">Action Name</label>
-          <input
-            className="neu-input"
-            value={actionName}
-            onChange={e => setActionName(e.target.value)}
-            placeholder="Your own Action"
-            style={{ width: "100%", padding: "18px 20px", fontSize: 18 }}
-          />
+          <input className="neu-input" value={actionName} onChange={e => setActionName(e.target.value)} placeholder="Your own Action" style={{ width: "100%", padding: "18px 20px", fontSize: 18 }} />
         </div>
 
         <div style={{ marginBottom: 28 }}>
           <label className="input-label">Why it helps</label>
-          <textarea
-            className="neu-input"
-            value={whyItHelps}
-            onChange={e => setWhyItHelps(e.target.value)}
-            placeholder="How or why this will help you?"
-            rows={4}
-            style={{ width: "100%", padding: "18px 20px", fontSize: 18, resize: "none" }}
-          />
+          <textarea className="neu-input" value={whyItHelps} onChange={e => setWhyItHelps(e.target.value)} placeholder="How or why this will help you?" rows={4} style={{ width: "100%", padding: "18px 20px", fontSize: 18, resize: "none" }} />
         </div>
 
-        <div style={{ fontSize: 20, fontWeight: 700, color: t.subtext, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>
-          Actions
-        </div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: t.subtext, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>Actions</div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 18, color: t.text }}>Audio</span>
-            <button onClick={() => setIsAudio(!isAudio)} className={isAudio ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
-              {isAudio ? "Enabled" : "Disabled"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ fontSize: 18, color: t.text }}>Audio</span>
+              <InfoTooltip text="Reads the Action and its Why out loud" theme={t} />
+            </div>
+            <button onClick={() => setIsAudio(!isAudio)} className={isAudio ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>{isAudio ? "Enabled" : "Disabled"}</button>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 18, color: t.text }}>Video</span>
-            <button onClick={() => setIsVideo(!isVideo)} className={isVideo ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
-              {isVideo ? "Enabled" : "Disabled"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ fontSize: 18, color: t.text }}>Video</span>
+              <InfoTooltip text="Play the Youtube video of the Action" theme={t} />
+            </div>
+            <button onClick={() => setIsVideo(!isVideo)} className={isVideo ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>{isVideo ? "Enabled" : "Disabled"}</button>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 18, color: t.text }}>Spotify</span>
-            <button onClick={() => setIsSpotify(!isSpotify)} className={isSpotify ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
-              {isSpotify ? "On" : "Off"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ fontSize: 18, color: t.text }}>Spotify</span>
+              <InfoTooltip text="Play the song, playlist, or podcast from your Spotify" theme={t} />
+            </div>
+            <button onClick={() => setIsSpotify(!isSpotify)} className={isSpotify ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>{isSpotify ? "On" : "Off"}</button>
           </div>
         </div>
 
         {isSpotify && (
           <div className="neu-inset" style={{ padding: 20, borderRadius: 16, marginBottom: 28 }}>
             <label className="input-label" style={{ marginTop: 0, fontSize: 16 }}>Search Spotify Tracks & Playlists</label>
-            <input
-              className="neu-input"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Type track, playlist, or artist..."
-              style={{ width: "100%", padding: "12px 16px", fontSize: 16, marginBottom: 12 }}
-            />
-
-            {selectedSpotify && (
-              <div style={{ fontSize: 14, color: t.accent, fontWeight: 700, marginBottom: 8 }}>
-                Linked: {selectedSpotify.name} ({selectedSpotify.type})
-              </div>
-            )}
-
+            <input className="neu-input" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Type track, playlist, or artist..." style={{ width: "100%", padding: "12px 16px", fontSize: 16, marginBottom: 12 }} />
+            {selectedSpotify && <div style={{ fontSize: 14, color: t.accent, fontWeight: 700, marginBottom: 8 }}>Linked: {selectedSpotify.name} ({selectedSpotify.type})</div>}
             {searchResults.length > 0 && (
               <div style={{ maxHeight: 160, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
                 {searchResults.map(item => (
-                  <div
-                    key={item.uri}
-                    onClick={() => setSelectedSpotify({ uri: item.uri, name: item.name, type: item.type })}
-                    style={{ padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 15, color: t.text, background: selectedSpotify?.uri === item.uri ? t.selectionBg : "transparent" }}
-                  >
+                  <div key={item.uri} onClick={() => setSelectedSpotify({ uri: item.uri, name: item.name, type: item.type })} style={{ padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 15, color: t.text, background: selectedSpotify?.uri === item.uri ? t.selectionBg : "transparent" }}>
                     {item.name} <span style={{ opacity: 0.6, fontSize: 13 }}>by {item.artist}</span>
                   </div>
                 ))}
@@ -876,12 +1027,8 @@ function CustomActionModal({ onClose, onSuccess }) {
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving || !actionName.trim()} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>
-            {saving ? "Saving..." : "Save & Set Reminder"}
-          </button>
-          <button className="neu-btn" onClick={onClose} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>
-            Cancel
-          </button>
+          <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving || !actionName.trim()} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>{saving ? "Saving..." : "Save & Set Reminder"}</button>
+          <button className="neu-btn" onClick={onClose} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>Cancel</button>
         </div>
       </div>
     </div>
@@ -1588,13 +1735,16 @@ function ProfilePage() {
     axios.get("/api/profile/actions").then(async res => {
       const fetchedActions = res.data.actions || []
       setActions(fetchedActions)
+
       const s = {}
-      for (const a of fetchedActions) {
+      // 🟢 THE FIX: Run all streak requests simultaneously instead of waiting in line!
+      await Promise.all(fetchedActions.map(async (a) => {
         try {
           const sr = await axios.get(`/api/profile/streak/${a.id}`)
           s[a.id] = sr.data
         } catch { }
-      }
+      }))
+
       setStreaks(s)
       setLoading(false)
     }).catch(() => setLoading(false))
@@ -1806,13 +1956,16 @@ function ProfilePage() {
   )
 }
 
+// ─── PROFILE ACTION CARD ─────────────────────────────────────────────────────
+// ─── PROFILE ACTION CARD ─────────────────────────────────────────────────────
+// ─── PROFILE ACTION CARD ─────────────────────────────────────────────────────
+// ─── PROFILE ACTION CARD ─────────────────────────────────────────────────────
 function ProfileActionCard({ a, isCompletedTab, onCompleteTrigger, onReviewFlowTrigger, streakData, onViewReport }) {
   const { t, setActiveVideo, cancelNotification } = useApp()
   const [showBenefit, setShowBenefit] = useState(false)
   const [showReminder, setShowReminder] = useState(false)
   const [showReviews, setShowReviews] = useState(false)
 
-  // Calculate Action Level (1 level per 10 completions)
   const level = Math.floor((a.times_completed || 0) / 10) + 1
 
   async function markRestart() {
@@ -1820,16 +1973,58 @@ function ProfileActionCard({ a, isCompletedTab, onCompleteTrigger, onReviewFlowT
     if (onCompleteTrigger) onCompleteTrigger(a)
   }
 
+  // 🟢 NEW: Manual Trigger Handlers for the Buttons!
+  function playAudio(e) {
+    e.stopPropagation();
+    new Audio(`/api/audio/${a.id}`).play().catch(err => console.error("Audio failed:", err));
+  }
+
+  function playVideo(e) {
+    e.stopPropagation();
+    if (a.embed_url) {
+      const startTime = parseInt(a.video_start_time) || 0;
+      // 🟢 The &start= parameter forces YouTube to jump to that second
+      const finalUrl = `${a.embed_url}?autoplay=1&start=${startTime}`;
+      console.log("Playing Video:", finalUrl); // Just in case we need to verify!
+      setActiveVideo({ url: finalUrl, title: a.video_title });
+    }
+  }
+
+  function playSpotify(e) {
+    e.stopPropagation();
+    axios.post("/api/spotify/play-reminder", { uri: a.spotify_uri }).catch(err => console.error("Spotify failed:", err));
+  }
+
   return (
     <>
       <div className="neu-inset" style={{ padding: "38px 40px", marginBottom: 32, borderRadius: 28, opacity: isCompletedTab ? 0.65 : 1, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <CatTag category={a.category} />
-            <span className="neu-card" style={{ padding: "6px 14px", borderRadius: 16, fontSize: 14, fontWeight: 800, color: t.accent, textTransform: "uppercase", letterSpacing: 1 }}>
-              Lvl {level}
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span className="neu-inset" style={{ padding: "6px 14px", borderRadius: 12, fontSize: 13, fontWeight: 800, color: t.text, textTransform: "uppercase", letterSpacing: 1 }}>
+              {a.category || "Customized"}
             </span>
+
+            <span className="neu-inset" style={{ padding: "6px 14px", borderRadius: 12, fontSize: 13, fontWeight: 800, color: t.accent }}>
+              Lv. {a.level || level}
+            </span>
+
+            {/* 🟢 ACTION ICONS TURNED INTO CLICKABLE BUTTONS */}
+            <div style={{ display: "flex", gap: 10, fontSize: 18, marginLeft: 6 }}>
+              {a.is_audio && (
+                <button onClick={playAudio} title="Play Audio" className="neu-btn" style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", padding: 0 }}>🔊</button>
+              )}
+              {a.is_video && (
+                <button onClick={playVideo} title="Watch Video" className="neu-btn" style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", padding: 0 }}>▶️</button>
+              )}
+              {a.spotify_uri && (
+                <button onClick={playSpotify} title="Play Spotify" className="neu-btn" style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", padding: 0 }}>🎵</button>
+              )}
+              {a.is_gcal && <span title="Synced to Calendar" style={{ cursor: "default" }}>📅</span>}
+            </div>
           </div>
+
           <span style={{ fontSize: 17, color: t.subtext, fontWeight: 600 }}>Added {new Date(a.picked_at).toLocaleDateString()}</span>
         </div>
 
@@ -1862,8 +2057,9 @@ function ProfileActionCard({ a, isCompletedTab, onCompleteTrigger, onReviewFlowT
             {!isCompletedTab && (
               <button className="neu-btn" onClick={() => setShowReminder(true)} style={{ padding: "18px 26px", fontSize: 19 }}>Change Reminder</button>
             )}
-            {a.embed_url && <button className="neu-btn" onClick={() => setActiveVideo({ url: a.embed_url, title: a.video_title })} style={{ padding: "18px 26px", fontSize: 19, color: "#c94c4c" }}>Watch Video</button>}
-
+            {a.embed_url && <button className="neu-btn" onClick={(e) => playVideo(e)} style={{ padding: "18px 26px", fontSize: 19, color: "#c94c4c" }}>
+              Watch Video
+            </button>}
             <button className="neu-btn" onClick={async () => {
               try {
                 const res = await axios.get(`/api/profile/actions/${a.id}/report`);
@@ -1883,7 +2079,7 @@ function ProfileActionCard({ a, isCompletedTab, onCompleteTrigger, onReviewFlowT
                 cancelNotification(a.id)
                 await axios.post(`/api/profile/actions/${a.id}/finish`).catch(() => { })
                 window.dispatchEvent(new Event("refresh-profile"))
-                onCompleteTrigger(a)
+                if (onCompleteTrigger) onCompleteTrigger(a)
               }
             }}
             style={{ padding: "18px 34px", fontSize: 19 }}
@@ -2544,7 +2740,7 @@ function EditProfilePage() {
 
   return (
     <div className="layout-container" style={{ minHeight: "100vh" }}>
-      <div style={{ padding: "46px 24px 90px" }}>
+      <div style={{ padding: "46px 24px 24px" }}>
 
         {/* ─── 🟢 HEADER: FIXED ALIGNMENT ─── */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 44 }}>
@@ -2641,7 +2837,7 @@ function EditProfilePage() {
         </div>
 
         {/* ABOUT ME CARD WITH NOTEBOOK LINES */}
-        <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 44 }}>
+        <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>About Me</div>
             {user?.about_me && <button className="neu-btn" onClick={() => setShowAboutModal(true)} style={{ padding: "8px 16px", fontSize: 15 }}>Edit Text</button>}
@@ -2694,42 +2890,81 @@ function EditProfilePage() {
       )}
 
       {/* ─── LINKED APPS / INTEGRATIONS ─── */}
-      <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 44 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 24 }}>Linked Integrations</div>
+      {/* ─── LINKED APPS ─── */}
+      <div className="neu-inset" style={{ padding: 34, borderRadius: 24, marginBottom: 24 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>Linked Apps</div>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <div className="neu-card" style={{ width: 50, height: 50, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>
-              🎵
+        <div style={{ display: "flex", flexDirection: "column" }}>
+
+          {/* SPOTIFY ROW */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 0", borderBottom: `1px solid ${t.shadowDark}30` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div className="neu-card" style={{ width: 50, height: 50, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>🎵</div>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: t.text }}>Spotify</div>
+                <div style={{ fontSize: 14, color: t.subtext }}>Automate music with your custom actions</div>
+              </div>
             </div>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: t.text }}>Spotify</div>
-              <div style={{ fontSize: 14, color: t.subtext }}>Automate music with your custom actions</div>
-            </div>
+
+            {(liveTier === "free" || !liveTier) ? (
+              <div style={{ textAlign: "right" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
+                <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
+              </div>
+            ) : (
+              <button className="neu-btn" onClick={handleLinkSpotify} style={{ padding: "10px 20px", fontSize: 16, color: "#1DB954", fontWeight: 800 }}>
+                Link Account
+              </button>
+            )}
           </div>
 
-          {/* 🟢 PREMIUM TIER CHECKER AND BUTTON */}
-          {(liveTier === "free" || !liveTier) ? (
-            <div style={{ textAlign: "right" }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
-              <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
+          {/* GOOGLE CALENDAR ROW */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div className="neu-card" style={{ width: 50, height: 50, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>📅</div>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: t.text }}>Google Calendar</div>
+                <div style={{ fontSize: 14, color: t.subtext }}>Sync reminders and fuel AI schedule analysis</div>
+              </div>
             </div>
-          ) : (
-            <button
-              className="neu-btn"
-              onClick={handleLinkSpotify}
-              style={{ padding: "10px 20px", fontSize: 16, color: "#1DB954", fontWeight: 800 }}
-            >
-              Link Account
-            </button>
-          )}
+
+            {(liveTier === "free" || !liveTier) ? (
+              <div style={{ textAlign: "right" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
+                <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
+              </div>
+            ) : (
+              <button className="neu-btn" onClick={async () => {
+                try {
+                  const res = await axios.get("/api/gcal/link");
+                  window.location.href = res.data.url;
+                } catch (e) {
+                  alert(e.response?.data?.detail || "Failed to generate Google Link. Check your .env file!");
+                }
+              }} style={{ padding: "10px 20px", fontSize: 16, color: "#4285F4", fontWeight: 800 }}>
+                Link Calendar
+              </button>
+            )}
+          </div>
+
         </div>
-      </div>
+      </div>{(liveTier === "free" || !liveTier) ? (
+        <div style={{ textAlign: "right" }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>🔒 Premium Feature</span>
+          <div style={{ fontSize: 14, color: t.accent, fontWeight: 600, cursor: "pointer", marginTop: 4 }} onClick={() => setShowUpgradeModal(true)}>Upgrade to unlock</div>
+        </div>
+      ) : (
+        <button className="neu-btn" onClick={async () => {
+          try {
+            const res = await axios.get("/api/gcal/link");
+            window.location.href = res.data.url;
+          } catch (e) {
+            alert(e.response?.data?.detail || "Failed to generate Google Link. Check your .env file!");
+          }
+        }}>
 
-
-
-
-
+        </button>
+      )}
 
       {showDeleteModal && (
         <div className="glass-modal">
@@ -2797,6 +3032,23 @@ export default function App() {
         const n = new Notification("MindActions", { body: bodyText, icon: "/icon-192.png" })
         n.onclick = () => { window.focus(); n.close() }
       }
+
+      // 🟢 NEW: Play audio when notification is opened!
+      if (action.is_audio) {
+        const audioId = action.action_id || action.id;
+        new Audio(`/api/audio/${audioId}`).play().catch(e => console.error("Audio block:", e));
+      }
+
+      // 🟢 NEW: Open Video Modal on Notification Click
+      if (action.is_video && action.embed_url) {
+        const finalUrl = `${action.embed_url}?start=${action.video_start_time || 0}&autoplay=1`;
+        setActiveVideo({ url: finalUrl, title: action.video_title });
+      }
+
+      if (action.spotify_uri) {
+        axios.post("/api/spotify/play-reminder", { uri: action.spotify_uri })
+          .catch(err => console.error("Spotify reminder play failed:", err));
+      }
       if (repeatMs) scheduleNotification(action, repeatMs, repeatMs)
     }, delayMs)
   }
@@ -2830,7 +3082,7 @@ export default function App() {
               const num = rem.frequency_value || 1; repeatMs = rem.frequency_type === "minute" ? num * 60000 : rem.frequency_type === "hour" ? num * 3600000 : num * 86400000
             }
             if (target <= now) { if (repeatMs) { while (target <= now) target.setTime(target.getTime() + repeatMs) } else { target.setDate(target.getDate() + 1) } }
-            scheduleNotification({ id: rem.action_id, text: rem.text, streak: rem.streak || 0 }, target - now, repeatMs)
+            scheduleNotification({ id: rem.action_id, text: rem.text, streak: rem.streak || 0, spotify_uri: rem.spotify_uri }, target - now, repeatMs)
           }
         })
       }).catch(() => { })
