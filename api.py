@@ -34,6 +34,10 @@ from datetime import timezone, timedelta
 
 import urllib.parse
 
+from cryptography.fernet import Fernet
+
+import time
+
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 security = HTTPBearer()
@@ -281,14 +285,6 @@ class JournalUpdateBody(BaseModel):
     content: str
 
 
-class CustomActionBody(BaseModel):
-    text: str
-    benefit: str
-    # 🟢 NEW: Added optional fields to match your table schema
-    spotify_uri: Optional[str] = None
-    spotify_name: Optional[str] = None
-    spotify_type: Optional[str] = None
-
 
 class ReviewBody(BaseModel):
     content: str
@@ -308,6 +304,11 @@ class CompleteBody(BaseModel):
 class VoiceBody(BaseModel):
     audio_b64: str
     mime_type: str = "audio/webm"
+
+
+class CustomThemeBody(BaseModel):
+    theme_data: dict  # This will hold the hex codes the user or AI generates
+
 
 @app.get("/")
 def root():
@@ -449,30 +450,55 @@ def get_categories():
     return {"categories": [{"name": r[0], "count": r[1]} for r in rows]}
 
 
-@app.post("/actions/custom")
+# 🟢 1. UNIFIED SCHEMA: Accepts Video, Audio, AND Spotify all at once
+class CustomActionBody(BaseModel):
+    text: str
+    benefit: str
+    is_audio: Optional[bool] = False
+    is_video: Optional[bool] = False
+    spotify_uri: Optional[str] = None
+    spotify_name: Optional[str] = None
+    spotify_type: Optional[str] = None
+    video_url: Optional[str] = None
+    video_start_time: Optional[int] = 0
+
+# 🟢 2. UPGRADED ENDPOINT
+@app.post("/profile/actions/custom")
 def create_custom_action(body: CustomActionBody, user=Depends(get_current_user)):
+    user_id = int(user["sub"])
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # 🟢 Insert the custom action including Spotify metadata
-    cur.execute(
-        """
-        INSERT INTO actions (text, benefit, category, difficulty, times_picked, is_active, spotify_uri, spotify_name, spotify_type)
-        VALUES (%s, %s, 'Customized', 3, 1, TRUE, %s, %s, %s) RETURNING id;
-        """,
-        (body.text, body.benefit, body.spotify_uri, body.spotify_name, body.spotify_type),
-    )
-    action_id = cur.fetchone()[0]
-    
-    cur.execute(
-        "INSERT INTO user_actions (user_id, action_id) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
-        (int(user["sub"]), action_id),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"action_id": action_id}
-
+    try:
+        cur.execute("SELECT tier FROM users WHERE id = %s", (user_id,))
+        tier = cur.fetchone()[0] or "free"
+        
+        # Premium Lock
+        if body.video_url and tier not in ["paid", "pro"]:
+            return {"success": False, "error": "Custom videos are a Premium feature."}
+            
+        # Insert action with video URL
+        cur.execute("""
+            INSERT INTO actions (user_id, text, benefit, is_custom, video_url, video_start_time, is_active) 
+            VALUES (%s, %s, %s, TRUE, %s, %s, TRUE) RETURNING id
+        """, (user_id, body.text, body.benefit, body.video_url, body.video_start_time))
+        
+        new_action_id = cur.fetchone()[0]
+        
+        # 🟢 CRITICAL: Link the new action to the user AND save their Spotify/Audio triggers!
+        cur.execute("""
+            INSERT INTO user_actions (user_id, action_id, is_active, is_audio, is_video, spotify_uri, spotify_name, spotify_type, video_start_time)
+            VALUES (%s, %s, TRUE, %s, %s, %s, %s, %s, %s)
+        """, (user_id, new_action_id, body.is_audio, body.is_video, body.spotify_uri, body.spotify_name, body.spotify_type, body.video_start_time))
+        
+        conn.commit()
+        return {"success": True, "action_id": new_action_id}
+    except Exception as e:
+        print(f"Error creating custom action: {e}")
+        return {"success": False}
+    finally:
+        cur.close()
+        conn.close()
 
 class UpgradeBody(BaseModel):
     tier: str
@@ -632,9 +658,11 @@ def get_my_actions(user=Depends(get_current_user)):
         print(f"Lazy cron skipped to prevent crash: {e}")
 
     # 🟢 THE SINGLE, CORRECT QUERY (No duplicates below this!)
+    # 🟢 THE SINGLE, CORRECT QUERY
     cur.execute("""
         SELECT a.id, a.text, a.benefit, a.category, a.difficulty, a.times_picked, a.times_completed, a.total_rating_points, a.rating_count, v.url, v.title, v.youtube_id, ua.picked_at, ua.is_active,
-               ua.is_audio, ua.is_video, ua.spotify_uri, ua.spotify_name, ua.spotify_type, ua.video_start_time
+               ua.is_audio, ua.is_video, ua.spotify_uri, ua.spotify_name, ua.spotify_type, 
+               COALESCE(ua.video_start_time, a.video_start_time) as video_start_time, a.video_url
         FROM user_actions ua
         JOIN actions a ON a.id = ua.action_id 
         LEFT JOIN videos v ON v.id = a.video_id
@@ -650,8 +678,23 @@ def get_my_actions(user=Depends(get_current_user)):
     for row in rows:
         item = dict(zip(columns, row))
         item["avg_rating"] = round(item["total_rating_points"] / item["rating_count"], 2) if item["rating_count"] else 0.0
-        item["embed_url"] = f"https://www.youtube.com/embed/{item['youtube_id']}" if item.get("youtube_id") else None
         item["picked_at"] = item["picked_at"].isoformat()
+        
+        # 🟢 SAFELY PARSES CUSTOM YOUTUBE URLS OR DEFAULT DATABASE VIDEOS
+        if item.get("video_url"):
+            v_url = item["video_url"]
+            if "watch?v=" in v_url:
+                v_id = v_url.split("watch?v=")[-1].split("&")[0]
+                item["embed_url"] = f"https://www.youtube.com/embed/{v_id}"
+            elif "youtu.be/" in v_url:
+                v_id = v_url.split("youtu.be/")[-1].split("?")[0]
+                item["embed_url"] = f"https://www.youtube.com/embed/{v_id}"
+            else:
+                item["embed_url"] = v_url
+            item["video_title"] = "Custom Action Video"
+        else:
+            item["embed_url"] = f"https://www.youtube.com/embed/{item['youtube_id']}" if item.get("youtube_id") else None
+            
         results.append(item)
         
     return {"actions": results, "count": len(results)}
@@ -1000,9 +1043,25 @@ async def save_journal(body: JournalBody, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Save the entry to the database
-    cur.execute("INSERT INTO journal_logs (user_id, action_id, content, custom_title) VALUES (%s, %s, %s, %s) RETURNING id;", 
-                (user_id, body.action_id, body.content, body.custom_title))
+    # 🟢 NEW SMART LINKER: Check if the custom_title matches an existing Action
+    final_action_id = body.action_id
+    final_custom_title = body.custom_title
+
+    if not final_action_id and final_custom_title:
+        # Check if this text exactly matches one of their Actions
+        cur.execute("SELECT id FROM actions WHERE user_id = %s AND text = %s LIMIT 1", (user_id, final_custom_title))
+        row = cur.fetchone()
+        
+        if row:
+            final_action_id = row[0]   # Found it! Officially link the ID.
+            final_custom_title = None  # Clear the custom text since it's officially linked now.
+    
+    # Save the entry to the database using the smart-linked variables
+    cur.execute("""
+        INSERT INTO journal_logs (user_id, action_id, content, custom_title) 
+        VALUES (%s, %s, %s, %s) RETURNING id;
+    """, (user_id, final_action_id, body.content, final_custom_title))
+    
     conn.commit()
     cur.close()
     conn.close()
@@ -1017,14 +1076,38 @@ async def save_journal(body: JournalBody, user=Depends(get_current_user)):
         triggered_spotify = await trigger_lofi_decompression(user_id)
 
     return {"saved": True, "vibe_shift": triggered_spotify}
-
-
 import urllib.parse
 import httpx
 
 import base64
 
-
+@app.get("/profile/cbt-distortions")
+def get_cbt_distortions(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_id = int(user["sub"])
+    
+    try:
+        # 🟢 Aggregates the distortions strings saved across all historical post-save logs
+        cur.execute("""
+            SELECT elem, COUNT(*)::int
+            FROM journal_logs,
+            LATERAL jsonb_array_elements_text(ai_analysis->'distortions') AS elem
+            WHERE user_id = %s AND ai_analysis IS NOT NULL
+            GROUP BY elem
+            ORDER BY COUNT(*) DESC;
+        """, (user_id,))
+        
+        rows = cur.fetchall()
+        data = [{"distortion": r[0], "count": r[1]} for r in rows]
+        return {"success": True, "distortions": data}
+        
+    except Exception as e:
+        print(f"Error compiling cognitive traps: {e}")
+        return {"success": False, "distortions": []}
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/spotify/search")
 async def search_spotify_catalog(q: str, user=Depends(get_current_user)):
@@ -1200,19 +1283,33 @@ def delete_journal(log_id: int, type: str, user=Depends(get_current_user)):
 def get_journal(user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
+    
+    # 🟢 FIXED: One clean query merging both tables and pulling ai_analysis safely!
     cur.execute("""
-        SELECT 'journal' as type, j.id, j.action_id, COALESCE(a.text, j.custom_title, 'General Thoughts') as action_text, j.content, j.created_at
+        SELECT 'journal' as type, j.id, j.action_id, COALESCE(a.text, j.custom_title, 'General Thoughts') as action_text, j.content, j.created_at, j.ai_analysis
         FROM journal_logs j LEFT JOIN actions a ON j.action_id = a.id WHERE j.user_id = %s
         UNION ALL
-        SELECT 'missed' as type, m.id, m.action_id, a.text as action_text, m.response as content, m.created_at
+        SELECT 'missed' as type, m.id, m.action_id, a.text as action_text, m.response as content, m.created_at, NULL as ai_analysis
         FROM missed_logs m JOIN actions a ON m.action_id = a.id WHERE m.user_id = %s AND m.response != ''
         ORDER BY created_at DESC;
     """, (int(user["sub"]), int(user["sub"])))
+    
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return {"journal": [{"type": r[0], "id": r[1], "action_id": r[2], "action_text": r[3], "content": r[4], "created_at": r[5].isoformat() if hasattr(r[5], 'isoformat') else str(r[5])} for r in rows]}
-
+    
+    # 🟢 FIXED: Added "ai_analysis": r[6] to send it to the frontend!
+    return {
+        "journal": [{
+            "type": r[0], 
+            "id": r[1], 
+            "action_id": r[2], 
+            "action_text": r[3], 
+            "content": r[4], 
+            "created_at": r[5].isoformat() if hasattr(r[5], 'isoformat') else str(r[5]),
+            "ai_analysis": r[6] # 🟢 The AI data is now attached!
+        } for r in rows]
+    }
 
 @app.get("/profile/milestones/{action_id}")
 def check_milestones(action_id: int, user=Depends(get_current_user)):
@@ -1525,111 +1622,133 @@ def get_moods(user=Depends(get_current_user)):
 
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
+# 🟢 1. NEW NESTED SCHEMA: Forces AI to return clean category percentages
+class FrictionCategory(BaseModel):
+    category: str
+    percentage: int
+
+class AICoachSchema(BaseModel):
+    acknowledgment: str
+    action_insights: str
+    structural_suggestions: str
+    encouragement: str
+    friction_categories: list[FrictionCategory] # 🟢 The new Donut Chart data!
+
 @app.get("/profile/ai-coach")
-async def get_ai_coach_insights(user=Depends(get_current_user)): # 🟢 FIXED: Added 'async'
+async def get_ai_coach_insights(user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
     user_id = int(user["sub"])
 
-    cur.execute("SELECT name, about_me, closing_time, tier, ai_count, last_ai_date FROM users WHERE id = %s", (user_id,))
-    u_row = cur.fetchone()
-    
-    if not u_row:
-        cur.close()
-        conn.close()
-        return {"success": False, "error": "User not found."}
-
-    user_data = {"name": u_row[0], "about_me": u_row[1], "closing_time": u_row[2]}
-    tier = u_row[3] or "free"
-    ai_count = u_row[4] or 0
-    last_ai_date = u_row[5]
-
-    today = datetime.date.today()
-    if last_ai_date != today:
-        ai_count = 0  
-
-    if tier in ["free", "paid"] and ai_count >= 3:
-        cur.close()
-        conn.close()
-        return {"success": False, "error": "You have reached your limit of 3 AI reports today. Try again tomorrow or upgrade!"}
-
-    if tier == "pro":
-        model_id = 'gemini-2.5-pro'
-    else:
-        model_id = 'gemini-2.5-flash-lite'
-
-    # 🟢 Fetch Today's Google Calendar Events
-    gcal_token = await get_valid_gcal_token(user_id, cur, conn)
-    todays_events = []
-    if gcal_token:
-        now = datetime.datetime.utcnow()
-        start_of_day = now.replace(hour=0, minute=0, second=0).isoformat() + "Z"
-        end_of_day = now.replace(hour=23, minute=59, second=59).isoformat() + "Z"
-        
-        cal_url = "https://www." + f"googleapis.com/calendar/v3/calendars/primary/events?timeMin={start_of_day}&timeMax={end_of_day}&singleEvents=true&orderBy=startTime"
-        
-        async with httpx.AsyncClient() as client:
-            res = await client.get(cal_url, headers={"Authorization": f"Bearer {gcal_token}"})
-            if res.status_code == 200:
-                events = res.json().get("items", [])
-                for e in events:
-                    todays_events.append({
-                        "title": e.get("summary", "Busy"),
-                        "start": e.get("start", {}).get("dateTime", e.get("start", {}).get("date")),
-                        "end": e.get("end", {}).get("dateTime", e.get("end", {}).get("date"))
-                    })
-
-    cur.execute("SELECT text, benefit, times_completed FROM actions WHERE user_id = %s AND is_active = TRUE", (user_id,))
-    actions = [{"action": r[0], "why": r[1], "completions": r[2]} for r in cur.fetchall()]
-
-    cur.execute("SELECT mood_state, created_at FROM mood_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 14", (user_id,))
-    moods = [{"mood": r[0], "date": r[1].isoformat()} for r in cur.fetchall()]
-
-    cur.execute("SELECT type, action_text, content, created_at FROM journal_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 20", (user_id,))
-    journals = [{"type": r[0], "action": r[1], "content": r[2], "date": r[3].isoformat()} for r in cur.fetchall()]
-
-    full_context = {
-        "user_profile": user_data,
-        "active_actions": actions,
-        "recent_moods": moods,
-        "recent_journals_and_misses": journals,
-        "todays_calendar_events": todays_events
-    }
-
-    system_prompt = f"""
-    You are an empathetic, highly analytical behavioral wellness coach.
-    Here is the complete data dump of the user's recent history:
-    {json.dumps(full_context)}
-
-    Provide your response STRICTLY as a raw JSON object using this exact schema:
-    {{
-      "acknowledgment": "A warm, empathetic message validating their recent feelings. Mention their name.",
-      "action_insights": "Analysis of how their specific actions correlate with their mood.",
-      "structural_suggestions": "Specific, actionable advice.",
-      "encouragement": "A closing uplifting thought."
-    }}
-    """
-
     try:
+        cur.execute("SELECT name, about_me, closing_time, tier, ai_count, last_ai_date FROM users WHERE id = %s", (user_id,))
+        u_row = cur.fetchone()
+        
+        if not u_row:
+            return {"success": False, "error": "User not found."}
+
+        user_data = {"name": u_row[0], "about_me": u_row[1], "closing_time": u_row[2]}
+        tier = u_row[3] or "free"
+        ai_count = u_row[4] or 0
+        last_ai_date = u_row[5]
+
+        today = datetime.date.today()
+        if last_ai_date != today:
+            ai_count = 0  
+
+        if tier in ["free", "paid"] and ai_count >= 3:
+            return {"success": False, "error": "You have reached your limit of 3 AI reports today. Try again tomorrow or upgrade!"}
+
+        model_id = 'gemini-3.5-flash'
+
+        gcal_token = await get_valid_gcal_token(user_id, cur, conn)
+        todays_events = []
+        if gcal_token:
+            now = datetime.datetime.utcnow()
+            start_of_day = now.replace(hour=0, minute=0, second=0).isoformat() + "Z"
+            end_of_day = now.replace(hour=23, minute=59, second=59).isoformat() + "Z"
+            
+            cal_url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={start_of_day}&timeMax={end_of_day}&singleEvents=true&orderBy=startTime"
+            
+            async with httpx.AsyncClient() as client:
+                res = await client.get(cal_url, headers={"Authorization": f"Bearer {gcal_token}"})
+                if res.status_code == 200:
+                    for e in res.json().get("items", []):
+                        todays_events.append({
+                            "title": e.get("summary", "Busy"),
+                            "start": e.get("start", {}).get("dateTime", e.get("start", {}).get("date")),
+                            "end": e.get("end", {}).get("dateTime", e.get("end", {}).get("date"))
+                        })
+
+        try:
+            cur.execute("""
+                SELECT a.text, a.benefit, ua.times_completed 
+                FROM user_actions ua 
+                JOIN actions a ON ua.action_id = a.id 
+                WHERE ua.user_id = %s AND ua.is_active = TRUE
+            """, (user_id,))
+            actions = [{"action": r[0], "why": r[1], "completions": r[2]} for r in cur.fetchall()]
+        except Exception:
+            conn.rollback()
+            actions = ["(Action data temporarily unavailable due to schema mismatch)"]
+
+        cur.execute("SELECT mood_state, created_at FROM mood_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 365", (user_id,))
+        moods = [{"mood": r[0], "date": r[1].isoformat()} for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT 'journal' as type, COALESCE(a.text, j.custom_title, 'General Thoughts') as action_text, j.content, j.created_at
+            FROM journal_logs j LEFT JOIN actions a ON j.action_id = a.id WHERE j.user_id = %s
+            UNION ALL
+            SELECT 'missed' as type, a.text as action_text, m.response as content, m.created_at
+            FROM missed_logs m JOIN actions a ON m.action_id = a.id WHERE m.user_id = %s AND m.response != ''
+            ORDER BY created_at DESC LIMIT 200;
+        """, (user_id, user_id))
+        journals = [{"type": r[0], "action": r[1], "content": r[2], "date": r[3].isoformat() if hasattr(r[3], 'isoformat') else str(r[3])} for r in cur.fetchall()]
+
+        full_context = {
+            "user_profile": user_data,
+            "active_actions": actions,
+            "all_moods": moods,
+            "all_journals_and_misses": journals,
+            "todays_calendar_events": todays_events
+        }
+
+        # 🟢 2. UPDATED PROMPT: Explicitly tell the AI how to categorize the friction logs
+        system_prompt = f"""
+        You are an empathetic, highly analytical behavioral wellness coach.
+        Here is the complete data dump of the user's entire history:
+        {json.dumps(full_context)}
+        
+        Analyze all the 'missed' friction logs in the dataset. Group their abstract reasons for missing habits into distinct root-cause categories (e.g., "Work Fatigue", "Anxiety", "Time Mismanagement"). 
+        Ensure the percentages inside `friction_categories` add up to 100.
+        """
+
         model = genai.GenerativeModel(model_id)
         response = model.generate_content(
             system_prompt,
-            generation_config=genai.GenerationConfig(response_mime_type="application/json")
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                response_schema=AICoachSchema, 
+                temperature=0.4
+            )
         )
         ai_response = json.loads(response.text)
         
+        # Save to DB
+        cur.execute("INSERT INTO ai_reports (user_id, report_data) VALUES (%s, %s)", (user_id, json.dumps(ai_response)))
         cur.execute("UPDATE users SET ai_count = %s, last_ai_date = %s WHERE id = %s", (ai_count + 1, today, user_id))
         conn.commit()
-        cur.close()
-        conn.close()
 
         return {"success": True, "data": ai_response}
         
     except Exception as e:
-        cur.close()
-        conn.close()
         print(f"Gemini API Error: {e}")
         return {"success": False, "error": "AI service is currently unavailable."}
+    
+    finally:
+        cur.close()
+        conn.close()
+
 
 @app.get("/profile/me")
 def get_user_profile_data(user=Depends(get_current_user)):
@@ -1637,8 +1756,9 @@ def get_user_profile_data(user=Depends(get_current_user)):
     cur = conn.cursor()
     
     try:
+        # 🟢 ADDED: custom_theme to the database query
         cur.execute(
-            "SELECT name, email, tier, about_me, gcal_access_token, spotify_access_token FROM users WHERE id = %s;", 
+            "SELECT name, email, tier, about_me, gcal_access_token, spotify_access_token, custom_theme FROM users WHERE id = %s;", 
             (int(user["sub"]),)
         )
         row = cur.fetchone()
@@ -1646,8 +1766,6 @@ def get_user_profile_data(user=Depends(get_current_user)):
         conn.rollback()
         cur.close()
         conn.close()
-        # 🟢 FIXED: Instead of a silent 404, this will throw a loud 500 Error
-        # Check your terminal! It will tell you EXACTLY what column is missing!
         raise HTTPException(status_code=500, detail=f"Database Crash: {e}")
 
     cur.close()
@@ -1661,8 +1779,9 @@ def get_user_profile_data(user=Depends(get_current_user)):
         "email": row[1],
         "tier": row[2] or "free",
         "about_me": row[3] or "",
-        "gcal_linked": bool(row[4]), # 🟢 Tells the frontend if the DB has a token!
-        "spotify_linked": bool(row[5])
+        "gcal_linked": bool(row[4]),
+        "spotify_linked": bool(row[5]),
+        "custom_theme": row[6] if row[6] else None # 🟢 Hands the saved theme back to React!
     }
 
 @app.post("/spotify/play-reminder")
@@ -1834,3 +1953,535 @@ def disconnect_spotify(user=Depends(get_current_user)):
     cur.close()
     conn.close()
     return {"success": True}
+
+@app.post("/profile/theme/custom")
+def save_custom_theme(body: CustomThemeBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_id = int(user["sub"])
+    
+    # 1. Fetch current limits and tier
+    cur.execute("SELECT tier, theme_changes_count, theme_reset_date FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    
+    if not row:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    tier = row[0] or "free"
+    count = row[1] or 0
+    reset_date = row[2]
+    
+    today = datetime.date.today()
+    
+    # 2. Monthly Reset Logic (Reset count to 0 if 30 days have passed)
+    if not reset_date or (today - reset_date).days >= 30:
+        count = 0
+        reset_date = today
+        
+    # 3. Enforce the Tier Limits!
+    if tier == "pro" and count >= 10:
+        cur.close()
+        conn.close()
+        return {"success": False, "error": "Pro limit reached (10/month). Resets next month."}
+    elif tier == "paid" and count >= 4:
+        cur.close()
+        conn.close()
+        return {"success": False, "error": "Paid limit reached (4/month). Resets next month."}
+    
+    # (Free users bypass the hard limit here because the frontend forces them to watch an Ad every single time they click it)
+    
+    # 4. Save the new theme and increment their count
+    new_count = count + 1
+    
+    cur.execute("""
+        UPDATE users 
+        SET custom_theme = %s, theme_changes_count = %s, theme_reset_date = %s 
+        WHERE id = %s
+    """, (json.dumps(body.theme_data), new_count, reset_date, user_id))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return {"success": True, "message": "Theme saved!", "used": new_count}
+
+
+class ImageThemeBody(BaseModel):
+    image_b64: str
+    mime_type: str = "image/jpeg"
+
+class ThemeSchema(BaseModel):
+    bg: str
+    shadowDark: str
+    shadowLight: str
+    text: str
+    subtext: str
+    accent: str
+    accentText: str
+    tag: str
+    streakOn: str
+    streakOff: str
+    placeholder: str
+    bgRGB: str
+    selectionBg: str
+
+@app.post("/profile/theme/generate-from-image")
+def generate_theme_from_image(body: ImageThemeBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_id = int(user["sub"])
+    
+    # 1. Fetch Tier and Limits
+    cur.execute("SELECT tier, theme_changes_count, theme_reset_date FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    tier = row[0] or "free"
+    count = row[1] or 0
+    reset_date = row[2]
+    today = datetime.date.today()
+    
+    # Reset limit if 30 days have passed
+    if not reset_date or (today - reset_date).days >= 30:
+        count = 0; reset_date = today
+        
+    # Enforce Limits
+    if tier == "pro" and count >= 10:
+        cur.close(); conn.close()
+        return {"success": False, "error": "Pro limit reached (10/month). Resets next month."}
+    elif tier == "paid" and count >= 4:
+        cur.close(); conn.close()
+        return {"success": False, "error": "Paid limit reached (4/month). Resets next month."}
+
+    try:
+        # 2. Prepare the Image for Gemini
+        image_bytes = base64.b64decode(body.image_b64)
+        
+        # 3. The Elite UI/UX Designer Prompt
+        # 3. The Strict Color-Enforced Prompt
+        system_prompt = """
+        You are an elite UI/UX designer specializing in Neumorphism (Soft UI).
+        Analyze the uploaded image. Extract a beautiful, highly accessible color palette inspired by its mood.
+        
+        CRITICAL MATHEMATICAL RULES FOR NEUMORPHISM:
+        1. `bg`: MUST be extracted from one of the dominant soft, relaxing colored elements actually present in the image (e.g., a soft sage green, a warm sunset peach, a deep ocean blue, a dusty rose). ABSOLUTELY NO PURE WHITE (#FFFFFF), OFF-WHITE, PURE BLACK (#000000), OR PLAIN GREY. It must be a noticeably tinted, relaxing mid-tone color.
+        2. `shadowDark`: Must be the exact `bg` color but 15-25% darker.
+        3. `shadowLight`: Must be the exact `bg` color but 10-20% lighter.
+        4. `text`: Must have a very high contrast ratio against `bg` (e.g., very dark if bg is light, or very light if bg is dark).
+        5. `subtext`: A muted, slightly transparent-looking version of `text`.
+        6. `accent`: The most vibrant, beautiful pop of color from the image.
+        7. `accentText`: A color that is perfectly readable when placed on top of the `accent` color.
+        8. `tag`: A subtle variation of the `bg` color.
+        9. `streakOn`: Same as `accent`.
+        10. `streakOff`: A highly desaturated, greyed-out version of `streakOn`.
+        11. `placeholder`: An rgba string based on `text` at 40% opacity (e.g., "rgba(200, 200, 200, 0.4)").
+        12. `bgRGB`: The `bg` color converted to exact RGB numbers ONLY (e.g., "224, 229, 236"). NO parentheses.
+        13. `selectionBg`: An rgba string of the `accent` color at 30% opacity (e.g., "rgba(255, 100, 100, 0.3)").
+        """
+        
+        client = Client()
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite', # 🟢 FIXED: This is the correct official model name!
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=body.mime_type),
+                system_prompt
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ThemeSchema,
+                temperature=0.2
+            )
+        )
+        
+        theme_json = json.loads(response.text)
+        new_count = count + 1
+        
+        # 5. Save to Database
+        cur.execute("""
+            UPDATE users SET custom_theme = %s, theme_changes_count = %s, theme_reset_date = %s WHERE id = %s
+        """, (json.dumps(theme_json), new_count, reset_date, user_id))
+        conn.commit()
+        
+        return {"success": True, "theme": theme_json, "used": new_count}
+        
+    except Exception as e:
+        print(f"❌ Theme Gen Error: {e}")
+        return {"success": False, "error": "AI failed to generate theme. Please try a different image."}
+    finally:
+        cur.close(); conn.close()
+
+# ─── REAL-TIME SHORT QUESTION ───
+class RealTimeQuestionBody(BaseModel):
+    content: str
+
+class RealTimeQuestionSchema(BaseModel):
+    question: str
+
+@app.post("/profile/journal/ai-question")
+def journal_realtime_question(body: RealTimeQuestionBody, user=Depends(get_current_user)):
+    user_id = int(user["sub"])
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT tier FROM users WHERE id = %s", (user_id,))
+    tier = cur.fetchone()[0] or "free"
+    cur.close(); conn.close()
+    
+    if tier != "pro": return {"success": False, "error": "Pro only"}
+
+    try:
+        system_prompt = """
+        You are a DBT therapist. Read the user's journal snippet. 
+        Output ONLY ONE short, gentle, non-judgmental question encouraging them to think deeper about what they just wrote. 
+        Max 2 sentences. No analysis.
+        """
+        client = Client()
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=[f"Current text: {body.content}", system_prompt],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=RealTimeQuestionSchema,
+                temperature=0.3
+            )
+        )
+        return {"success": True, "question": json.loads(response.text)["question"]}
+    except Exception as e:
+        return {"success": False}
+
+# ─── POST-SAVE DEEP ANALYSIS ───
+class PostSaveAnalysisBody(BaseModel):
+    content: str
+
+class PostSaveAnalysisSchema(BaseModel):
+    validation: str
+    distortions: list[str]
+    trend_insight: str
+    guiding_question: str
+
+@app.post("/profile/journal/ai-analysis")
+def journal_post_save_analysis(body: PostSaveAnalysisBody, user=Depends(get_current_user)):
+    user_id = int(user["sub"])
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("SELECT tier FROM users WHERE id = %s", (user_id,))
+        tier = cur.fetchone()[0] or "free"
+        
+        if tier not in ["pro", "paid"]:
+            return {"success": False, "error": "Premium feature only"}
+
+        # Fetch last 10 entries for trend analysis
+        cur.execute("SELECT created_at, content FROM journal_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 10", (user_id,))
+        past_entries = [{"date": r[0].isoformat(), "content": r[1]} for r in cur.fetchall()]
+        
+        # 🟢 FIXED: Removed the premature connection close from right here!
+
+        system_prompt = f"""
+        You are an empathetic CBT/DBT therapist.
+        Recent History: {json.dumps(past_entries)}
+        
+        Analyze the user's just-saved entry.
+        1. Validate their specific struggle warmly.
+        2. Flag if they are falling into CBT distortions (e.g., "All-or-Nothing" thinking).
+        3. Remind them of how they felt recently based on the history to show progress or recurring triggers.
+        4. Ask a gentle DBT question to push reflection further.
+        """
+        
+        client = Client()
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=[f"Saved Entry: {body.content}", system_prompt],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=PostSaveAnalysisSchema,
+                temperature=0.4
+            )
+        )
+        
+        analysis_data = json.loads(response.text)
+
+        # 🟢 Save the AI analysis into the database, attaching it to the entry we just made
+        cur.execute("""
+            UPDATE journal_logs 
+            SET ai_analysis = %s 
+            WHERE user_id = %s AND content = %s
+        """, (json.dumps(analysis_data), user_id, body.content))
+        conn.commit()
+
+        return {"success": True, "analysis": analysis_data}
+        
+    except Exception as e:
+        print("Analysis error:", e)
+        return {"success": False}
+    finally:
+        # 🟢 FIXED: Connection is safely closed at the very end!
+        cur.close()
+        conn.close()
+
+
+@app.get("/profile/ai-reports")
+def get_ai_reports(offset: int = 0, limit: int = 5, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_id = int(user["sub"])
+    
+    cur.execute("""
+        SELECT id, report_data, created_at 
+        FROM ai_reports 
+        WHERE user_id = %s 
+        ORDER BY created_at DESC 
+        LIMIT %s OFFSET %s
+    """, (user_id, limit, offset))
+    
+    reports = []
+    for r in cur.fetchall():
+        reports.append({
+            "id": r[0],
+            "data": r[1],
+            "date": r[2].isoformat() if hasattr(r[2], 'isoformat') else str(r[2])
+        })
+        
+    cur.close()
+    conn.close()
+    return {"success": True, "reports": reports}
+
+    # ─── SECURE ENCRYPTION SETUP ───
+# ─── SECURE ENCRYPTION CLIENT ───
+# ─── SECURE ENCRYPTION CLIENT ───
+# ─── SECURE ENCRYPTION CLIENT ───
+# ─── SECURE ENCRYPTION CLIENT ───
+# ─── SECURE ENCRYPTION CLIENT ───
+try:
+    encryption_key = os.getenv("ENCRYPTION_KEY", "")
+    cipher_suite = Fernet(encryption_key.encode('utf-8'))
+except Exception as exc:
+    print("⚠️ Startup Warning: Invalid or missing ENCRYPTION_KEY in your .env file.")
+    print("Generating a temporary on-the-fly encryption key for local testing tracking...")
+    fallback_key = Fernet.generate_key()
+    cipher_suite = Fernet(fallback_key)
+
+def encrypt_text(text: str) -> str:
+    return cipher_suite.encrypt(text.encode('utf-8')).decode('utf-8')
+
+def decrypt_text(encrypted_text: str) -> str:
+    try:
+        return cipher_suite.decrypt(encrypted_text.encode('utf-8')).decode('utf-8')
+    except Exception:
+        return "[Message could not be decrypted]"
+
+# ─── CHAT ENDPOINTS ───
+
+@app.get("/profile/coach/disclaimer")
+def check_disclaimer(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_id = int(user["sub"])
+    
+    cur.execute("SELECT accepted_coach_disclaimer, tier FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    tier = row[1] or "free"
+    if tier != "pro":
+        raise HTTPException(status_code=403, detail="The AI Well-Being Coach is a Pro tier feature.")
+        
+    return {"accepted": row[0] or False}
+
+@app.post("/profile/coach/disclaimer")
+def accept_disclaimer(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET accepted_coach_disclaimer = TRUE WHERE id = %s", (int(user["sub"]),))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+@app.get("/profile/coach/sessions")
+def get_sessions(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, title, created_at FROM chat_sessions WHERE user_id = %s ORDER BY updated_at DESC", (int(user["sub"]),))
+    sessions = [{"id": r[0], "title": r[1], "date": r[2].isoformat() if hasattr(r[2], 'isoformat') else str(r[2])} for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return {"sessions": sessions}
+
+@app.post("/profile/coach/sessions")
+def create_session(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s) RETURNING id", (int(user["sub"]), "New Wellness Chat"))
+    session_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"id": session_id, "title": "New Wellness Chat"}
+
+@app.delete("/profile/coach/sessions/{session_id}")
+def delete_session(session_id: int, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM chat_sessions WHERE id = %s AND user_id = %s", (session_id, int(user["sub"])))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+@app.get("/profile/coach/sessions/{session_id}")
+def get_messages(session_id: int, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("SELECT id FROM chat_sessions WHERE id = %s AND user_id = %s", (session_id, int(user["sub"])))
+    if not cur.fetchone():
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=403, detail="Unauthorized access to this session.")
+        
+    cur.execute("""
+        SELECT m.id, m.role, m.content, m.reply_to_id, r.content as reply_content, m.created_at 
+        FROM chat_messages m
+        LEFT JOIN chat_messages r ON m.reply_to_id = r.id
+        WHERE m.session_id = %s ORDER BY m.created_at ASC
+    """, (session_id,))
+    
+    messages = []
+    for r in cur.fetchall():
+        messages.append({
+            "id": r[0],
+            "role": r[1],
+            "content": decrypt_text(r[2]),
+            "reply_to_id": r[3],
+            "reply_content": decrypt_text(r[4]) if r[4] else None,
+            "date": r[5].isoformat() if hasattr(r[5], 'isoformat') else str(r[5])
+        })
+    cur.close()
+    conn.close()
+    return {"messages": messages}
+
+
+# ─── THE NEW MEGA-PROMPT SCHEMAS ───
+class ChatMessageBody(BaseModel):
+    content: str
+    reply_to_id: Optional[int] = None
+
+class CoachResponseSchema(BaseModel):
+    is_crisis: bool
+    suggested_title: Optional[str]
+    coach_reply: str
+
+@app.post("/profile/coach/sessions/{session_id}/message")
+def send_coach_message(session_id: int, body: ChatMessageBody, user=Depends(get_current_user)):
+    user_id = int(user["sub"])
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("SELECT tier FROM users WHERE id = %s", (user_id,))
+        tier_row = cur.fetchone()
+        if not tier_row or tier_row[0] != "pro":
+            raise HTTPException(status_code=403, detail="Pro tier subscription verification required.")
+
+        # 1. Collect session history
+        cur.execute("SELECT role, content FROM chat_messages WHERE session_id = %s ORDER BY created_at ASC LIMIT 20", (session_id,))
+        rows = cur.fetchall()
+        is_first_message = len(rows) == 0
+        
+        conversation_context = []
+        for r in rows:
+            # 🟢 FIXED: Explicit fallback handling for 'crisis_system' and alternate structural roles
+            db_role = r[0]
+            if db_role in ["coach", "model", "crisis_system"]:
+                role_tag = "model"
+            else:
+                role_tag = "user"
+                
+            msg_text = decrypt_text(r[1])
+            conversation_context.append(
+                types.Content(role=role_tag, parts=[types.Part.from_text(text=msg_text)])
+            )
+
+        # 🟢 NEW: Check if the current message is a thread reply to an existing message row
+        parent_context_str = ""
+        if body.reply_to_id:
+            cur.execute("SELECT role, content FROM chat_messages WHERE id = %s", (body.reply_to_id,))
+            parent_row = cur.fetchone()
+            if parent_row:
+                parent_context_str = f"[Replying directly to previous comment: \"{decrypt_text(parent_row[1])}\"]\n"
+
+        # Combine thread context with the user's fresh message input text
+        full_user_input = f"{parent_context_str}{body.content}"
+
+        # 2. 🟢 ONE API CALL TO RULE THEM ALL
+        system_prompt = f"""
+        You are an AI Mental Wellness Coach and Mindfulness Companion.
+        You must evaluate the user's message and generate a JSON response handling 3 tasks at once.
+        
+        TASK 1: CRISIS DETECTION
+        If the user indicates active self-harm, suicide intent, or severe life-threatening crisis, set `is_crisis` to true. Otherwise, false.
+        
+        TASK 2: TITLE GENERATION
+        Is this the first message in the chat? {'YES' if is_first_message else 'NO'}.
+        If YES, generate a short 3-word title for `suggested_title`. If NO, set it to null.
+        
+        TASK 3: COACH REPLY
+        If `is_crisis` is true: Output a supportive message urging them to dial 988 or contact emergency services immediately, stating you cannot provide emergency care.
+        If `is_crisis` is false: Respond empathetically, practically, and concisely to help them practice mindfulness. DO NOT diagnose or prescribe treatment.
+        """
+
+        client = Client()
+        
+        # Append user message
+        conversation_context.append(
+            types.Content(role="user", parts=[types.Part.from_text(text=body.content)])
+        )
+
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite', # 🟢 Using the exact model you requested
+            contents=conversation_context,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt, 
+                temperature=0.5,
+                response_mime_type="application/json",
+                response_schema=CoachResponseSchema
+            )
+        )
+        
+        # 3. Unpack the single JSON response
+        ai_data = json.loads(response.text)
+        is_crisis = ai_data.get("is_crisis", False)
+        ai_reply = ai_data.get("coach_reply", "I am here for you.")
+        new_title = ai_data.get("suggested_title")
+
+        # 4. Process the Title Update
+        if new_title and is_first_message:
+            cur.execute("UPDATE chat_sessions SET title = %s WHERE id = %s", (new_title, session_id))
+
+        # 5. Save the Chats Securely
+        cur.execute("INSERT INTO chat_messages (session_id, role, content, reply_to_id) VALUES (%s, %s, %s, %s) RETURNING id", 
+                   (session_id, "user", encrypt_text(body.content), body.reply_to_id))
+                   
+        final_role = "crisis_system" if is_crisis else "coach"
+        cur.execute("INSERT INTO chat_messages (session_id, role, content) VALUES (%s, %s, %s)", 
+                   (session_id, final_role, encrypt_text(ai_reply)))
+                   
+        cur.execute("UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = %s", (session_id,))
+        
+        conn.commit()
+        return {"role": final_role, "content": ai_reply, "is_crisis": is_crisis}
+
+    except Exception as e:
+        err_str = str(e)
+        print("AI Coach Controller execution failure:", err_str)
+        if "429" in err_str:
+            return {"error": "Google API Rate Limit Exceeded. You have sent too many messages quickly. Please wait a moment."}
+        return {"error": "The AI Coach service is currently busy. Please send your message one more time!"}
+    finally:
+        cur.close()
+        conn.close()

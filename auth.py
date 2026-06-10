@@ -404,7 +404,7 @@ async def update_theme(request: Request, user=Depends(get_current_user)):
     body = await request.json()  # Fixed — was using wrong sync pattern
     theme = body.get("theme")
 
-    if theme not in ("light", "dark", "calm"):
+    if theme not in ("light", "dark", "calm", "custom"):
         raise HTTPException(
             status_code=400, detail="Theme must be light, dark, or calm"
         )

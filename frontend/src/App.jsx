@@ -51,21 +51,37 @@ function InfoTooltip({ text, theme }) {
 // ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
 // ─── 1. THEME PICKER ─────────────────────────────────────────────────────────
 // ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
+// ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
+// ─── 1. GLOBAL THEME PICKER ──────────────────────────────────────────────────
 export function GlobalThemePicker() {
-  const { t, theme, themeName, setTheme, setThemeName } = useApp();
+  // 🟢 FIXED: Grab customThemeObj from context so we know if a theme exists!
+  const { t, theme, themeName, setTheme, setThemeName, user, setShowThemeGenerator, customThemeObj } = useApp();
   const [isOpen, setIsOpen] = useState(false);
 
-  // Fallback string validation to prevent a blank box appearance
   const activeTheme = theme || themeName || 'dark';
-  const displayText = activeTheme.charAt(0).toUpperCase() + activeTheme.slice(1);
+  const displayText = activeTheme === 'custom' ? 'Customized' : activeTheme.charAt(0).toUpperCase() + activeTheme.slice(1);
 
   if (!activeTheme) return null;
+
+  // 🟢 ACTION 1: Apply the saved theme instantly without opening the modal
+  function applyCustomTheme(e) {
+    e.preventDefault();
+    setIsOpen(false);
+    if (typeof setTheme === 'function') setTheme('custom');
+    if (typeof setThemeName === 'function') setThemeName('custom');
+  }
+
+  // 🟢 ACTION 2: Open the modal to generate a brand new theme
+  function openGenerator(e) {
+    e.preventDefault();
+    setIsOpen(false);
+    setShowThemeGenerator(true);
+  }
 
   return (
     <div style={{
       position: 'absolute',
       top: '46px',
-      /* Dynamically locks it to the exact left padding boundary of your 1200px layout container */
       left: 'max(24px, calc(50vw - 576px))',
       zIndex: 99999,
       display: 'flex',
@@ -78,14 +94,8 @@ export function GlobalThemePicker() {
         onClick={() => setIsOpen(!isOpen)}
         className="neu-btn"
         style={{
-          padding: "14px 24px",
-          fontSize: "18px",
-          borderRadius: "16px",
-          color: t.text,
-          minWidth: "110px",
-          fontWeight: 700,
-          textAlign: "center",
-          cursor: "pointer"
+          padding: "14px 24px", fontSize: "18px", borderRadius: "16px",
+          color: t.text, minWidth: "110px", fontWeight: 700, textAlign: "center", cursor: "pointer"
         }}
       >
         {displayText}
@@ -96,16 +106,11 @@ export function GlobalThemePicker() {
         <div
           className="neu-card"
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: "12px",
-            marginTop: "12px",
-            padding: "18px 14px",
-            borderRadius: "24px",
-            width: "126px",
-            alignItems: "stretch"
+            display: 'flex', flexDirection: 'column', gap: "12px", marginTop: "12px",
+            padding: "18px 14px", borderRadius: "24px", width: "160px", alignItems: "stretch"
           }}
         >
+          {/* Default Themes */}
           {['light', 'dark', 'calm'].map((th) => {
             const isActive = activeTheme === th;
             return (
@@ -113,37 +118,71 @@ export function GlobalThemePicker() {
                 key={th}
                 onClick={(e) => {
                   e.preventDefault();
-                  // 🟢 FIX STUCK THEME: Triggers both context naming possibilities safely
                   if (typeof setTheme === 'function') setTheme(th);
                   if (typeof setThemeName === 'function') setThemeName(th);
                   setIsOpen(false);
                 }}
                 className={isActive ? "neu-inset active-tab" : "neu-btn"}
                 style={{
-                  padding: "12px 14px",
-                  fontSize: "16px",
-                  borderRadius: "14px",
-                  color: isActive ? t.accent : t.text,
-                  fontWeight: 700,
-                  textAlign: "center",
-                  cursor: "pointer",
-                  boxShadow: isActive
-                    ? "inset 4px 4px 8px var(--shadow-d), inset -4px -4px 8px var(--shadow-l)"
-                    : "6px 6px 12px var(--shadow-d), -6px -6px 12px var(--shadow-l)",
-                  border: "none",
-                  transform: "none"
+                  padding: "12px 14px", fontSize: "16px", borderRadius: "14px",
+                  color: isActive ? t.accent : t.text, fontWeight: 700, textAlign: "center", cursor: "pointer",
+                  boxShadow: isActive ? "inset 4px 4px 8px var(--shadow-d), inset -4px -4px 8px var(--shadow-l)" : "6px 6px 12px var(--shadow-d), -6px -6px 12px var(--shadow-l)",
+                  border: "none", transform: "none"
                 }}
               >
                 {th.charAt(0).toUpperCase() + th.slice(1)}
               </button>
             );
           })}
+
+          <div style={{ height: 1, backgroundColor: `${t.shadowDark}40`, margin: "4px 0" }} />
+
+          {/* 🟢 CONDITIONAL RENDER: Check if they already have a custom theme! */}
+          {customThemeObj ? (
+            <>
+              {/* Applies existing theme instantly */}
+              <button
+                onClick={applyCustomTheme}
+                className={activeTheme === 'custom' ? "neu-inset active-tab" : "neu-btn"}
+                style={{
+                  padding: "12px 14px", fontSize: "16px", borderRadius: "14px",
+                  color: activeTheme === 'custom' ? t.accent : t.text, fontWeight: 800, textAlign: "center", cursor: "pointer"
+                }}
+              >
+                Customized
+              </button>
+
+              {/* Opens Modal to Overwrite */}
+              <button
+                onClick={openGenerator}
+                className="neu-btn"
+                style={{
+                  padding: "8px 10px", fontSize: "13px", borderRadius: "10px",
+                  color: t.subtext, fontWeight: 700, textAlign: "center", cursor: "pointer", border: `1px dashed ${t.subtext}80`
+                }}
+              >
+                New AI Theme
+              </button>
+            </>
+          ) : (
+            /* If no theme exists, just show the Create button */
+            <button
+              onClick={openGenerator}
+              className="neu-btn"
+              style={{
+                padding: "12px 14px", fontSize: "16px", borderRadius: "14px",
+                color: t.text, fontWeight: 800, textAlign: "center", cursor: "pointer", border: `1.5px dashed ${t.accent}`
+              }}
+            >
+              Create AI Theme
+            </button>
+          )}
+
         </div>
       )}
     </div>
   );
 }
-
 // ─── 2. PUBLIC LANDING PAGE (FOR GOOGLE ADSENSE) ─────────────────────────────
 // ─── PUBLIC LANDING PAGE ─────────────────────────────────────────────────────
 function PublicLandingPage({ onNavigate }) {
@@ -173,7 +212,337 @@ function PublicLandingPage({ onNavigate }) {
   );
 }
 
+// ─── INSIGHTS PAGE ──────────────────────────────────────────────────────────
+// ─── INSIGHTS PAGE ──────────────────────────────────────────────────────────
+// ─── INSIGHTS PAGE ──────────────────────────────────────────────────────────
+// ─── INSIGHTS PAGE ──────────────────────────────────────────────────────────
+// ─── INSIGHTS PAGE ──────────────────────────────────────────────────────────
+function InsightsPage() {
+  const { t, setPage, moods, actions, streaks } = useApp();
+  const [moodDays, setMoodDays] = useState(30);
+  const [actionFilter, setActionFilter] = useState("All");
 
+  // 🟢 NEW: Tab State Tracker (Defaults to AI Analysis History)
+  const [insightsTab, setInsightsTab] = useState("AI Analysis History");
+
+  const [aiReports, setAiReports] = useState([]);
+  const [cbtTraps, setCbtTraps] = useState([]);
+  const [offset, setOffset] = useState(0);
+  const [loadingReports, setLoadingReports] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const fetchReports = (currentOffset = 0) => {
+    setLoadingReports(true);
+    axios.get(`/api/profile/ai-reports?offset=${currentOffset}&limit=5`)
+      .then(res => {
+        if (currentOffset === 0) setAiReports(res.data.reports);
+        else setAiReports(prev => [...prev, ...res.data.reports]);
+      })
+      .finally(() => setLoadingReports(false));
+  };
+
+  const fetchCbtTraps = () => {
+    axios.get("/api/profile/cbt-distortions")
+      .then(res => { if (res.data.success) setCbtTraps(res.data.distortions); });
+  };
+
+  useEffect(() => {
+    fetchReports(0);
+    fetchCbtTraps();
+  }, []);
+
+  const generateAIReport = async () => {
+    setIsGenerating(true);
+    try {
+      const res = await axios.get("/api/profile/ai-coach");
+      if (res.data.success) {
+        setOffset(0);
+        fetchReports(0);
+        fetchCbtTraps();
+        setInsightsTab("AI Analysis History"); // Instantly focus on history to view the fresh report!
+      } else {
+        alert(res.data.error || "Failed to generate report.");
+      }
+    } catch (e) {
+      alert("AI service is currently unavailable.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // -- MOOD PIE CHART MATH --
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - moodDays);
+  const filteredMoods = moods.filter(m => new Date(m.date) >= cutoff);
+  const moodCounts = { great: 0, chill: 0, down: 0 };
+  filteredMoods.forEach(m => {
+    if (m.mood === "Great") moodCounts.great++;
+    else if (m.mood === "Steady") moodCounts.chill++;
+    else moodCounts.down++;
+  });
+  const totalMoods = filteredMoods.length || 1;
+
+  // -- ACTION PIE CHART MATH --
+  let totalDone = 0; let totalMissed = 0;
+  if (actionFilter === "All") {
+    actions.forEach(a => {
+      const sData = streaks[a.id];
+      if (sData && sData.days_30) {
+        sData.days_30.forEach(d => d.completed ? totalDone++ : totalMissed++);
+      }
+    });
+  } else {
+    const sData = streaks[actionFilter];
+    if (sData && sData.days_30) {
+      sData.days_30.forEach(d => d.completed ? totalDone++ : totalMissed++);
+    }
+  }
+  const totalActions = (totalDone + totalMissed) || 1;
+
+  // -- HABIT-MOOD SYNERGY MATRIX MATH --
+  const computeActionMoodSynergy = (actionId) => {
+    const sData = streaks[actionId];
+    if (!sData || !sData.days_30 || sData.days_30.length === 0) return null;
+
+    const moodWeights = { "Great": 5, "Steady": 3, "Down": 1 };
+    let doneSum = 0; let doneCount = 0;
+    let missedSum = 0; let missedCount = 0;
+
+    sData.days_30.forEach(day => {
+      const targetDateStr = new Date(day.date).toDateString();
+      const match = moods.find(m => new Date(m.date).toDateString() === targetDateStr);
+
+      if (match && moodWeights[match.mood]) {
+        const score = moodWeights[match.mood];
+        if (day.completed) {
+          doneSum += score; doneCount++;
+        } else {
+          missedSum += score; missedCount++;
+        }
+      }
+    });
+
+    return {
+      doneAvg: doneCount > 0 ? (doneSum / doneCount).toFixed(1) : null,
+      missedAvg: missedCount > 0 ? (missedSum / missedCount).toFixed(1) : null
+    };
+  };
+
+  // -- CSS PIE GENERATOR --
+  const buildConic = (data) => {
+    if (data.every(d => d.val === 0)) return t.selectionBg;
+    let currentAngle = 0;
+    return `conic-gradient(${data.map(d => {
+      const pct = (d.val / d.total) * 100;
+      const str = `${d.color} ${currentAngle}% ${currentAngle + pct}%`;
+      currentAngle += pct;
+      return str;
+    }).join(", ")})`;
+  };
+
+  const getDonutColors = () => [t.accent, t.text, "#c94c4c", t.subtext, t.shadowDark];
+  const basicSummary = `Over the last ${moodDays} days, you logged your mood ${filteredMoods.length} times. ${moodCounts.great > moodCounts.down ? "Overall, you've been leaning positive! " : "It looks like a challenging stretch. "} You've maintained an action completion rate of ${Math.round((totalDone / totalActions) * 100)}%.`;
+  const maxTrapCount = cbtTraps.length > 0 ? Math.max(...cbtTraps.map(tr => tr.count)) : 1;
+
+  return (
+    <div className="layout-container" style={{ minHeight: "100vh", padding: "46px 24px 90px", position: "relative" }}>
+
+      {/* HEADER ROW */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 44 }}>
+        <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "14px 24px", fontSize: 18, marginLeft: "126px" }}>
+          Back to Profile
+        </button>
+        <div style={{ fontSize: 32, fontWeight: 800, color: t.text, position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
+          Deep Insights
+        </div>
+        <button className="neu-btn neu-btn-primary" onClick={generateAIReport} disabled={isGenerating} style={{ padding: "14px 24px", fontSize: 18 }}>
+          {isGenerating ? "Analyzing Data..." : "✨ Generate AI Analysis"}
+        </button>
+      </div>
+
+      {/* TOP PIE CHARTS */}
+      <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", marginBottom: 32 }}>
+        <div className="neu-card" style={{ flex: "1 1 300px", padding: "24px", display: "flex", flexDirection: "column", alignItems: "center", borderRadius: "24px" }}>
+          <select className="neu-input" value={moodDays} onChange={e => setMoodDays(Number(e.target.value))} style={{ marginBottom: 24, padding: "8px 16px", fontSize: 16 }}>
+            <option value={7}>Last 7 Days</option>
+            <option value={30}>Last 30 Days</option>
+            <option value={90}>Last 90 Days</option>
+          </select>
+          <div style={{ width: 160, height: 160, borderRadius: "50%", background: buildConic([{ val: moodCounts.great, total: totalMoods, color: t.accent }, { val: moodCounts.chill, total: totalMoods, color: t.text }, { val: moodCounts.down, total: totalMoods, color: "#c94c4c" }]), boxShadow: `6px 6px 12px var(--shadow-d), -6px -6px 12px var(--shadow-l)` }} />
+          <div style={{ display: "flex", gap: 16, marginTop: 24, fontWeight: 700, fontSize: 14 }}>
+            <span style={{ color: t.accent }}>Great: {Math.round((moodCounts.great / totalMoods) * 100)}%</span>
+            <span style={{ color: t.text }}>Chill: {Math.round((moodCounts.chill / totalMoods) * 100)}%</span>
+            <span style={{ color: "#c94c4c" }}>Down: {Math.round((moodCounts.down / totalMoods) * 100)}%</span>
+          </div>
+        </div>
+
+        <div className="neu-card" style={{ flex: "1 1 300px", padding: "24px", display: "flex", flexDirection: "column", alignItems: "center", borderRadius: "24px" }}>
+          <select className="neu-input" value={actionFilter} onChange={e => setActionFilter(e.target.value)} style={{ marginBottom: 24, padding: "8px 16px", fontSize: 16, maxWidth: 200 }}>
+            <option value="All">All Actions (30 Days)</option>
+            {actions.map(a => <option key={a.id} value={a.id}>{a.text}</option>)}
+          </select>
+          <div style={{ width: 160, height: 160, borderRadius: "50%", background: buildConic([{ val: totalDone, total: totalActions, color: t.accent }, { val: totalMissed, total: totalActions, color: t.subtext }]), boxShadow: `6px 6px 12px var(--shadow-d), -6px -6px 12px var(--shadow-l)` }} />
+          <div style={{ display: "flex", gap: 16, marginTop: 24, fontWeight: 700, fontSize: 14 }}>
+            <span style={{ color: t.accent }}>Done: {Math.round((totalDone / totalActions) * 100)}%</span>
+            <span style={{ color: t.subtext }}>Missed: {Math.round((totalMissed / totalActions) * 100)}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* NON-AI SUMMARY BOX */}
+      <div className="neu-inset" style={{ padding: "24px", borderRadius: "20px", marginBottom: 44, fontSize: 18, color: t.text, lineHeight: 1.6, borderLeft: `4px solid ${t.accent}` }}>
+        <span style={{ fontWeight: 800, display: "block", marginBottom: 8 }}>Data Correlation Summary</span>
+        {basicSummary}
+      </div>
+
+      {/* ─── 🟢 NEW: NEUMORPHIC TAB SWITCH TOGGLE ─── */}
+      <div className="neu-inset" style={{ display: "flex", padding: 10, borderRadius: 20, maxWidth: 840, margin: "0 auto 44px" }}>
+        {["AI Analysis History", "CBT Cognitive Trap Tracker", "Habit Execution vs Mood Impact"].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setInsightsTab(tab)}
+            className={insightsTab === tab ? "neu-btn active-tab" : "neu-btn-flat"}
+            style={{ flex: 1, padding: "16px 0", borderRadius: 16, fontWeight: 700, fontSize: 16 }}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── TAB CONTENT 1: AI ANALYSIS HISTORY ─── */}
+      {insightsTab === "AI Analysis History" && (
+        <div style={{ animation: "slideUpFade 0.4s ease forwards" }}>
+          {aiReports.length === 0 && !loadingReports && (
+            <div style={{ color: t.subtext, fontStyle: "italic", textAlign: "center" }}>No AI reports generated yet. Click Generate above to get started!</div>
+          )}
+
+          {aiReports.map((report, idx) => {
+            const fCats = report.data.friction_categories || [];
+            const fTotal = fCats.reduce((acc, c) => acc + c.percentage, 0) || 100;
+
+            return (
+              <div key={idx} className="neu-card" style={{ padding: "32px", borderRadius: "24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 14, color: t.subtext, fontWeight: 700, marginBottom: 16 }}>{new Date(report.date).toLocaleDateString()}</div>
+                <div style={{ fontSize: 18, color: t.text, fontStyle: "italic", borderLeft: `3px solid ${t.subtext}`, paddingLeft: 12, marginBottom: 20 }}>"{report.data.acknowledgment}"</div>
+
+                {fCats.length > 0 && (
+                  <div className="neu-inset" style={{ padding: "24px", borderRadius: "16px", marginBottom: 24, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 32 }}>
+                    <div style={{ flex: 1, minWidth: "200px" }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: t.subtext, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 16 }}>Friction Bottlenecks</span>
+                      {fCats.map((cat, i) => {
+                        const color = getDonutColors()[i % getDonutColors().length];
+                        return (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, fontSize: 16, fontWeight: 700 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <span style={{ width: 12, height: 12, borderRadius: "50%", background: color }} />
+                              <span style={{ color: t.text }}>{cat.category}</span>
+                            </div>
+                            <span style={{ color }}>{cat.percentage}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{
+                      width: 140, height: 140, borderRadius: "50%",
+                      background: buildConic(fCats.map((c, i) => ({ val: c.percentage, total: fTotal, color: getDonutColors()[i % getDonutColors().length] }))),
+                      maskImage: "radial-gradient(circle, transparent 40%, black 41%)",
+                      WebkitMaskImage: "radial-gradient(circle, transparent 40%, black 41%)",
+                      boxShadow: `6px 6px 12px var(--shadow-d), -6px -6px 12px var(--shadow-l)`
+                    }} />
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 16 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: t.accent, textTransform: "uppercase" }}>Action Insights</span>
+                  <div style={{ marginTop: 4, color: t.text, lineHeight: 1.5 }}>{report.data.action_insights}</div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "#c94c4c", textTransform: "uppercase" }}>Structural Suggestions</span>
+                  <div style={{ marginTop: 4, color: t.text, lineHeight: 1.5 }}>{report.data.structural_suggestions}</div>
+                </div>
+
+                <div className="neu-inset" style={{ padding: "16px", marginTop: 24, borderRadius: "12px", color: t.text, fontWeight: 700 }}>
+                  {report.data.encouragement}
+                </div>
+              </div>
+            );
+          })}
+
+          {aiReports.length >= 5 && (
+            <button
+              className="neu-btn"
+              onClick={() => { const next = offset + 5; setOffset(next); fetchReports(next); }}
+              style={{ width: "100%", padding: "16px", fontSize: 18, fontWeight: 700, marginTop: 16 }}
+              disabled={loadingReports}
+            >
+              {loadingReports ? "Loading..." : "Load Older Reports"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ─── TAB CONTENT 2: CBT COGNITIVE TRAP TRACKER ─── */}
+      {insightsTab === "CBT Cognitive Trap Tracker" && (
+        <div className="neu-card" style={{ padding: "32px", borderRadius: "24px", animation: "slideUpFade 0.4s ease forwards" }}>
+          {cbtTraps.length === 0 ? (
+            <div style={{ color: t.subtext, fontStyle: "italic", textAlign: "center" }}>No cognitive traps flagged in journal entries yet. Complete a post-save reflection to begin mapping trends!</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              {cbtTraps.map((trap, i) => {
+                const barWidth = (trap.count / maxTrapCount) * 100;
+                return (
+                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 700 }}>
+                      <span style={{ color: t.text }}>{trap.distortion}</span>
+                      <span style={{ color: t.accent }}>{trap.count} instance{trap.count > 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="neu-inset" style={{ width: "100%", height: 16, borderRadius: 8, overflow: "hidden", padding: 2, display: "flex", alignItems: "center" }}>
+                      <div style={{ width: `${barWidth}%`, height: "100%", background: `linear-gradient(90deg, ${t.subtext} 0%, ${t.accent} 100%)`, borderRadius: 6, transition: "width 0.5s ease" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── TAB CONTENT 3: HABIT EXECUTION VS MOOD IMPACT ─── */}
+      {insightsTab === "Habit Execution vs Mood Impact" && (
+        <div className="neu-card" style={{ padding: "32px", borderRadius: "24px", animation: "slideUpFade 0.4s ease forwards" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 20 }}>Comparing average mood when habits are executed vs when skipped:</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {actions.map(action => {
+              const synergy = computeActionMoodSynergy(action.id);
+              if (!synergy || (!synergy.doneAvg && !synergy.missedAvg)) return null;
+              return (
+                <div key={action.id} style={{ borderBottom: `1px solid ${t.shadowDark}30`, paddingBottom: 16 }}>
+                  <div style={{ fontSize: 19, fontWeight: 700, color: t.text, marginBottom: 12 }}>{action.text}</div>
+                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                    {synergy.doneAvg && (
+                      <div className="neu-inset" style={{ flex: 1, padding: "10px 16px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 15, color: t.subtext }}>When Done</span>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: t.accent }}>{synergy.doneAvg} / 5.0</span>
+                      </div>
+                    )}
+                    {synergy.missedAvg && (
+                      <div className="neu-inset" style={{ flex: 1, padding: "10px 16px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 15, color: t.subtext }}>When Missed</span>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: "#c94c4c" }}>{synergy.missedAvg} / 5.0</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── 5. MAIN APP COMPONENT (THE ROUTER) ──────────────────────────────────────
 
@@ -901,8 +1270,10 @@ function ReviewsModal({ action, onClose }) {
 
 // ─── CUSTOM ACTION MODAL ──────────────────────────────────────────────────────
 // ─── CUSTOM ACTION MODAL ──────────────────────────────────────────────────────
+// ─── CUSTOM ACTION MODAL ──────────────────────────────────────────────────────
+// ─── CUSTOM ACTION MODAL ──────────────────────────────────────────────────────
 function CustomActionModal({ onClose, onSuccess }) {
-  const { t } = useApp();
+  const { t, user } = useApp();
   const [actionName, setActionName] = useState("");
   const [whyItHelps, setWhyItHelps] = useState("");
 
@@ -910,6 +1281,12 @@ function CustomActionModal({ onClose, onSuccess }) {
   const [isAudio, setIsAudio] = useState(false);
   const [isVideo, setIsVideo] = useState(false);
   const [isSpotify, setIsSpotify] = useState(false);
+
+  // 🟢 Premium Custom Video States
+  const [showVideoPopup, setShowVideoPopup] = useState(false);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoTime, setVideoTime] = useState("00:00");
+  const isPremium = ["paid", "pro"].includes(user?.tier?.toLowerCase());
 
   // 🎵 Spotify Integration States
   const [searchQuery, setSearchQuery] = useState("");
@@ -921,20 +1298,21 @@ function CustomActionModal({ onClose, onSuccess }) {
   useEffect(() => {
     if (!searchQuery.trim()) { setSearchResults([]); return; }
     setSearching(true);
-
     const delayDebounce = setTimeout(() => {
       axios.get(`/api/spotify/search?q=${encodeURIComponent(searchQuery)}`)
         .then(res => setSearchResults(res.data.tracks || []))
         .catch(() => { })
         .finally(() => setSearching(false));
     }, 400);
-
     return () => clearTimeout(delayDebounce);
   }, [searchQuery]);
 
   async function handleSave() {
     if (!actionName.trim()) return;
     setSaving(true);
+
+    const timeParts = videoTime.split(':').map(str => str.trim());
+    const startSeconds = timeParts.length === 2 ? (parseInt(timeParts[0] || 0) * 60) + parseInt(timeParts[1] || 0) : 0;
 
     const payload = {
       text: actionName.trim(),
@@ -943,13 +1321,21 @@ function CustomActionModal({ onClose, onSuccess }) {
       is_video: isVideo,
       spotify_uri: isSpotify ? selectedSpotify?.uri : null,
       spotify_name: isSpotify ? selectedSpotify?.name : null,
-      spotify_type: isSpotify ? selectedSpotify?.type : null
+      spotify_type: isSpotify ? selectedSpotify?.type : null,
+      video_url: isVideo && videoUrl.trim() ? videoUrl.trim() : null,
+      video_start_time: isVideo && videoUrl.trim() ? startSeconds : 0
     };
 
     try {
-      const res = await axios.post("/api/actions/custom", payload);
-      // 🟢 NEW: Tell the backend to generate audio if enabled
+      const res = await axios.post("/api/profile/actions/custom", payload);
+      if (res.data.error) {
+        alert(res.data.error);
+        setSaving(false);
+        return;
+      }
+
       if (isAudio) axios.post(`/api/actions/${res.data.action_id}/generate-audio`).catch(() => { });
+
       onSuccess({
         id: res.data.action_id,
         text: actionName.trim(),
@@ -965,13 +1351,13 @@ function CustomActionModal({ onClose, onSuccess }) {
 
   return (
     <div className="glass-modal" onClick={onClose}>
-      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 600, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 600, width: "100%", maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 32, fontStyle: "italic", fontFamily: "'Autumn Brush', 'Caveat', cursive", color: t.text, marginBottom: 32 }}>
           Create Custom Action
         </div>
 
         <div style={{ marginBottom: 28 }}>
-          <label className="input-label">Action Name</label>
+          <label className="input-label">Action</label>
           <input className="neu-input" value={actionName} onChange={e => setActionName(e.target.value)} placeholder="Your own Action" style={{ width: "100%", padding: "18px 20px", fontSize: 18 }} />
         </div>
 
@@ -982,7 +1368,10 @@ function CustomActionModal({ onClose, onSuccess }) {
 
         <div style={{ fontSize: 20, fontWeight: 700, color: t.subtext, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>Actions</div>
 
+        {/* 🟢 FIXED: Master Actions Wrapper ensuring exact 16px row gaps */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 28 }}>
+
+          {/* AUDIO ROW */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center" }}>
               <span style={{ fontSize: 18, color: t.text }}>Audio</span>
@@ -991,14 +1380,52 @@ function CustomActionModal({ onClose, onSuccess }) {
             <button onClick={() => setIsAudio(!isAudio)} className={isAudio ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>{isAudio ? "Enabled" : "Disabled"}</button>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center" }}>
-              <span style={{ fontSize: 18, color: t.text }}>Video</span>
-              <InfoTooltip text="Play the Youtube video of the Action" theme={t} />
+          {/* VIDEO ROW WITH DROPDOWN */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <span style={{ fontSize: 18, color: t.text }}>Video</span>
+                <InfoTooltip text="Play the Youtube video of the Action" theme={t} />
+              </div>
+
+              {/* 🟢 FIXED: Correctly ordered and center-aligned buttons */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button
+                  className="neu-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isPremium) {
+                      setShowVideoPopup(!showVideoPopup);
+                      if (!showVideoPopup) setIsVideo(true);
+                    } else {
+                      alert("Custom action videos are a Premium feature! Upgrade your tier to unlock this.");
+                    }
+                  }}
+                  style={{ width: 38, height: 38, borderRadius: "50%", display: "inline-flex", justifyContent: "center", alignItems: "center", fontSize: 26, fontWeight: 900, color: isPremium ? t.accent : t.subtext, padding: 0, lineHeight: 0, paddingBottom: 4 }}
+                  title={isPremium ? "Add YouTube URL" : "Premium Feature"}
+                >
+                  +
+                </button>
+                <button onClick={() => setIsVideo(!isVideo)} className={isVideo ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>
+                  {isVideo ? "Enabled" : "Disabled"}
+                </button>
+              </div>
             </div>
-            <button onClick={() => setIsVideo(!isVideo)} className={isVideo ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "8px 20px", borderRadius: "12px", fontSize: 15 }}>{isVideo ? "Enabled" : "Disabled"}</button>
+
+            {/* YOUTUBE URL POPUP */}
+            {showVideoPopup && isPremium && (
+              <div className="neu-inset" style={{ padding: "16px", borderRadius: "16px", marginTop: 4, animation: "slideUpFade 0.3s ease" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: t.subtext, marginBottom: 8, textTransform: "uppercase" }}>Custom YouTube Link</div>
+                <input className="neu-input" placeholder="Paste YouTube URL..." value={videoUrl} onChange={e => setVideoUrl(e.target.value)} style={{ width: "100%", padding: "10px 16px", fontSize: 15, marginBottom: 12 }} />
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 15, color: t.text, fontWeight: 700 }}>Start Time (MM:SS):</span>
+                  <input type="text" className="neu-input" placeholder="00:00" value={videoTime} onChange={e => setVideoTime(e.target.value)} style={{ width: 80, padding: "8px", textAlign: "center", fontSize: 15 }} />
+                </div>
+              </div>
+            )}
           </div>
 
+          {/* SPOTIFY ROW */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center" }}>
               <span style={{ fontSize: 18, color: t.text }}>Spotify</span>
@@ -1026,7 +1453,8 @@ function CustomActionModal({ onClose, onSuccess }) {
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* 🟢 FIXED: These buttons are now safely locked inside the modal card */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: "auto" }}>
           <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving || !actionName.trim()} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>{saving ? "Saving..." : "Save & Set Reminder"}</button>
           <button className="neu-btn" onClick={onClose} style={{ padding: "16px", fontSize: 18, fontWeight: 700 }}>Cancel</button>
         </div>
@@ -1034,7 +1462,6 @@ function CustomActionModal({ onClose, onSuccess }) {
     </div>
   );
 }
-
 
 
 // ─── ACTION REPORT MODAL ──────────────────────────────────────────────────────
@@ -1116,25 +1543,88 @@ function ReportModal({ actionText, history, reasons, journals, onClose }) {
   )
 }
 
+
+// ─── SAVED AI ANALYSIS MODAL ──────────────────────────────────────────────────
+function SavedAnalysisModal({ data, onClose }) {
+  const { t } = useApp();
+
+  if (!data) return null;
+
+  return (
+    <div className="glass-modal" onClick={onClose}>
+      <div className="neu-card" style={{ padding: "40px", maxWidth: 600, width: "100%", maxHeight: "90vh", overflowY: "auto", position: "relative" }} onClick={e => e.stopPropagation()}>
+
+        <div style={{ fontSize: 24, fontWeight: 800, color: t.text, marginBottom: 24, textAlign: "center" }}>
+          Past Session Analysis
+        </div>
+
+        <div className="neu-inset" style={{ padding: "24px", borderRadius: "16px", marginBottom: 24 }}>
+          {/* Validation */}
+          <div style={{ fontSize: 18, color: t.text, fontStyle: "italic", borderLeft: `3px solid ${t.subtext}`, paddingLeft: 12, marginBottom: 20 }}>
+            "{data.validation}"
+          </div>
+
+          {/* Distortions */}
+          {data.distortions?.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: "#c94c4c", textTransform: "uppercase", letterSpacing: 1 }}>Cognitive Traps Detected</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                {data.distortions.map((d, i) => (
+                  <span key={i} style={{ background: `${t.shadowDark}50`, color: t.text, padding: "4px 10px", borderRadius: "8px", fontSize: 13, fontWeight: 600 }}>{d}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Trends */}
+          <div style={{ marginBottom: 20 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>Historical Trend</span>
+            <div style={{ fontSize: 16, color: t.text, lineHeight: 1.5, marginTop: 4 }}>{data.trend_insight}</div>
+          </div>
+
+          {/* Guiding Question */}
+          <div className="neu-card" style={{ padding: "16px", border: `2px solid ${t.accent}` }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: t.accent, textTransform: "uppercase", letterSpacing: 1 }}>Guiding Question</span>
+            <div style={{ fontSize: 18, color: t.text, lineHeight: 1.5, marginTop: 8, fontWeight: 600 }}>{data.guiding_question}</div>
+          </div>
+        </div>
+
+        <button className="neu-btn" onClick={onClose} style={{ width: "100%", padding: "16px", fontSize: 18, fontWeight: 700 }}>
+          Close
+        </button>
+
+      </div>
+    </div>
+  );
+}
+
+
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
+// ─── JOURNAL IN MODAL (WITH REAL-TIME AI CBT ASSISTANT) ─────────────────────
+// ─── JOURNAL IN MODAL (WITH REAL-TIME & POST-SAVE AI) ─────────────────────
 function JournalInModal({ action, onClose, onSaved }) {
-  const { t } = useApp()
+  const { t, user } = useApp()
   const [content, setContent] = useState("")
   const [customTitle, setCustomTitle] = useState("General Thoughts")
   const [pastCategories, setPastCategories] = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // 🎙️ Voice States
+  // 🎙️ Voice & Spotify States
   const [showVoice, setShowVoice] = useState(false);
-  const [aiReply, setAiReply] = useState("");
+  const [sessionState, setSessionState] = useState("writing");
 
-  // 🎧 Spotify Cinematic States
-  const [sessionState, setSessionState] = useState("writing"); // "writing", "fading", "decompressing"
+  // 🧠 AI States
+  const [aiAssistEnabled, setAiAssistEnabled] = useState(false);
+  const [realTimeQuestion, setRealTimeQuestion] = useState("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // 🟢 NEW: Holds the deep analysis data after saving
+  const [postSaveData, setPostSaveData] = useState(null);
 
   useEffect(() => {
     if (!action) {
@@ -1146,23 +1636,57 @@ function JournalInModal({ action, onClose, onSaved }) {
     }
   }, [action])
 
+  // 🟢 REAL-TIME DEBOUNCER (Only fetches a short question!)
+  useEffect(() => {
+    if (!aiAssistEnabled || user?.tier !== 'pro') return;
+    if (content.trim().length < 40) { setRealTimeQuestion(""); return; }
+
+    setIsAnalyzing(true);
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await axios.post("/api/profile/journal/ai-question", { content: content.trim() });
+        if (res.data.success) setRealTimeQuestion(res.data.question);
+      } catch (err) { console.error(err); }
+      finally { setIsAnalyzing(false); }
+    }, 1500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [content, aiAssistEnabled, user?.tier]);
+
+  // 🟢 SAVING LOGIC (Triggers Post-Save Deep Analysis)
   async function handleSave() {
     if (!content.trim()) { onClose(); return }
     setSaving(true)
 
     try {
+      // 1. Save to database
       const res = await axios.post("/api/profile/journal", {
         action_id: action ? action.id : null,
         content: content.trim(),
         custom_title: action ? null : customTitle.trim()
       });
 
+      // 2. If Pro, run the deep analysis before closing!
+      if (user?.tier === "pro" || user?.tier === "paid") {
+        try {
+          const analysisRes = await axios.post("/api/profile/journal/ai-analysis", { content: content.trim() });
+          if (analysisRes.data.success) {
+            setPostSaveData(analysisRes.data.analysis);
+            setSessionState("analysis"); // Switch UI to show the report
+            setSaving(false);
+            if (onSaved) onSaved();
+            return; // Stop here so the user can read the report
+          }
+        } catch (e) { console.error("Analysis failed"); }
+      }
+
+      // 3. Fallback / Non-Pro save complete behavior
       if (res.data.vibe_shift) {
         setSessionState("fading");
         setTimeout(() => setSessionState("decompressing"), 600);
       } else {
-        if (onSaved) onSaved()
-        onClose()
+        if (onSaved) onSaved();
+        onClose();
       }
     } catch (e) {
       console.error(e);
@@ -1171,72 +1695,109 @@ function JournalInModal({ action, onClose, onSaved }) {
   }
 
   async function handleTalkClick() {
-    try {
-      const res = await axios.get("/api/profile/me");
-      const currentTier = res.data.tier || "free";
-      if (currentTier === "paid" || currentTier === "pro") {
-        setShowVoice(true);
-      } else {
-        alert("🎙️ Voice Journaling is a Premium feature. Please upgrade your membership in Account Settings to unlock voice inputs!");
-      }
-    } catch (err) {
-      alert("Unable to verify subscription status. Please try again.");
-    }
+    if (user?.tier === "paid" || user?.tier === "pro") setShowVoice(true);
+    else alert("🎙️ Voice Journaling is a Premium feature. Please upgrade your membership to unlock voice inputs!");
   }
 
   return (
     <div className="glass-modal" onClick={sessionState === "writing" ? onClose : undefined}>
-      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 760, width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
+      <div className="neu-card" style={{ padding: "48px 44px", maxWidth: 700, width: "100%", position: "relative" }} onClick={e => e.stopPropagation()}>
 
-        {/* 🎧 THE DECOMPRESSION CARD (Pops up inside the modal) */}
+        {/* 🎧 THE DECOMPRESSION CARD */}
         {sessionState === "decompressing" && (
-          <div style={{ textAlign: "center", animation: "slideUpFade 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards", padding: "40px 0" }}>
+          <div style={{ textAlign: "center", animation: "slideUpFade 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards", padding: "40px 0", width: "100%" }}>
             <div style={{ fontSize: 64, marginBottom: 20 }}>🎧</div>
             <h2 style={{ color: t.text, fontSize: 28, marginBottom: 16 }}>Deep breaths.</h2>
             <p style={{ color: t.subtext, fontSize: 18, lineHeight: 1.6, maxWidth: 500, margin: "0 auto", marginBottom: 32 }}>
               That sounded like a tough session. I've queued up an ambient lofi setup on your Spotify to help you decompress.
-              <br /><br />
-              Step away from the screen for a minute. You've got this.
             </p>
-            <button
-              className="neu-inset active-tab"
-              onClick={() => { if (onSaved) onSaved(); onClose(); }}
-              style={{ padding: "12px 28px", fontSize: 16, fontWeight: 700, color: t.accent }}
-            >
-              Close Journal
+            <button className="neu-inset active-tab" onClick={onClose} style={{ padding: "12px 28px", fontSize: 16, fontWeight: 700, color: t.accent }}>Close Journal</button>
+          </div>
+        )}
+
+        {/* 🧠 POST-SAVE DEEP ANALYSIS OVERLAY */}
+        {sessionState === "analysis" && postSaveData && (
+          <div style={{ animation: "slideUpFade 0.5s ease forwards" }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: t.text, marginBottom: 24, textAlign: "center" }}>Session Analysis</div>
+
+            <div className="neu-inset" style={{ padding: "24px", borderRadius: "16px", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, color: t.text, fontStyle: "italic", borderLeft: `3px solid ${t.subtext}`, paddingLeft: 12, marginBottom: 20 }}>
+                "{postSaveData.validation}"
+              </div>
+
+              {postSaveData.distortions?.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "#c94c4c", textTransform: "uppercase", letterSpacing: 1 }}>Cognitive Traps Detected</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                    {postSaveData.distortions.map((d, i) => (
+                      <span key={i} style={{ background: `${t.shadowDark}50`, color: t.text, padding: "4px 10px", borderRadius: "8px", fontSize: 13, fontWeight: 600 }}>{d}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginBottom: 20 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: t.subtext, textTransform: "uppercase", letterSpacing: 1 }}>Historical Trend</span>
+                <div style={{ fontSize: 16, color: t.text, lineHeight: 1.5, marginTop: 4 }}>{postSaveData.trend_insight}</div>
+              </div>
+
+              <div className="neu-card" style={{ padding: "16px", border: `2px solid ${t.accent}` }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: t.accent, textTransform: "uppercase", letterSpacing: 1 }}>Carry This With You</span>
+                <div style={{ fontSize: 18, color: t.text, lineHeight: 1.5, marginTop: 8, fontWeight: 600 }}>{postSaveData.guiding_question}</div>
+              </div>
+            </div>
+
+            <button className="neu-btn neu-btn-primary" onClick={onClose} style={{ width: "100%", padding: "18px", fontSize: 20 }}>
+              Close Session
             </button>
           </div>
         )}
 
-        {/* 📝 ORIGINAL UI (Fades out when Spotify is triggered) */}
+        {/* 📝 THE WRITING VIEW */}
         <div style={{
           transition: "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
           opacity: sessionState === "writing" ? 1 : 0,
           visibility: sessionState === "writing" ? "visible" : "hidden",
-          height: sessionState === "writing" ? "auto" : "0px",
-          overflow: "hidden"
+          position: sessionState === "writing" ? "relative" : "absolute",
+          top: sessionState === "writing" ? "auto" : 0,
         }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: t.text, marginBottom: 14 }}>Journal Entry</div>
+          {/* 🟢 NEW HEADER: Includes the AI Assist Toggle */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: t.text }}>Journal Entry</div>
 
-          <div style={{ position: "relative", marginBottom: 36, paddingLeft: 16, borderLeft: `4px solid ${t.accent}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 14, color: t.subtext, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                AI Assist {user?.tier !== 'pro' && '🔒'}
+              </span>
+              <button
+                className={aiAssistEnabled ? "neu-inset active-tab" : "neu-btn"}
+                onClick={() => {
+                  if (user?.tier !== "pro") { alert("AI Assist is a Pro feature."); return; }
+                  setAiAssistEnabled(!aiAssistEnabled);
+                }}
+                style={{ padding: "6px 12px", borderRadius: "10px", fontSize: 14, fontWeight: 800, color: aiAssistEnabled ? t.accent : t.text }}
+              >
+                {aiAssistEnabled ? "ON" : "OFF"}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ position: "relative", marginBottom: 24, paddingLeft: 16, borderLeft: `4px solid ${t.accent}` }}>
             {action ? (
               <div style={{ fontSize: 18, color: t.text, fontStyle: "italic" }}>"{action.text}"</div>
             ) : (
               <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
                 <input
-                  className="neu-input"
-                  value={customTitle}
-                  onFocus={() => setShowDropdown(true)}
-                  onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-                  onChange={e => setCustomTitle(e.target.value)}
+                  className="neu-input" value={customTitle} onChange={e => setCustomTitle(e.target.value)}
+                  onFocus={() => setShowDropdown(true)} onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
                   placeholder="Enter or select category..."
-                  style={{ fontSize: 18, color: t.text, fontStyle: "italic", padding: "8px 36px 8px 12px", width: "100%", background: "transparent", boxShadow: "none", borderBottom: `1px dashed ${t.accent}`, borderRadius: 0, paddingRight: "30px" }}
+                  style={{ fontSize: 18, color: t.text, fontStyle: "italic", padding: "8px 36px 8px 12px", width: "100%", background: "transparent", boxShadow: "none", borderBottom: `1px dashed ${t.accent}`, borderRadius: 0 }}
                 />
                 <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: t.subtext, pointerEvents: "none", opacity: 0.7 }}>▼</span>
                 {showDropdown && pastCategories.length > 0 && (
                   <div className="neu-card" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, padding: "8px 0", marginTop: 4, maxHeight: 200, overflowY: "auto", borderRadius: 16 }}>
                     {pastCategories.map(c => (
-                      <div key={c} onClick={() => { setCustomTitle(c); setShowDropdown(false); }} style={{ padding: "10px 20px", fontSize: 17, color: t.text, cursor: "pointer", transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = t.selectionBg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div key={c} onClick={() => { setCustomTitle(c); setShowDropdown(false); }} style={{ padding: "10px 20px", fontSize: 17, color: t.text, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = t.selectionBg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         {c}
                       </div>
                     ))}
@@ -1246,52 +1807,48 @@ function JournalInModal({ action, onClose, onSaved }) {
             )}
           </div>
 
+          {/* 🟢 NEW REAL-TIME BOX: Sits directly above the text area */}
+          {aiAssistEnabled && (
+            <div className="neu-inset" style={{
+              width: "100%", height: "80px", marginBottom: 16, borderRadius: "16px", padding: "12px 16px",
+              display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${t.shadowDark}30`,
+              overflow: "hidden"
+            }}>
+              {isAnalyzing ? (
+                <span style={{ fontSize: 15, color: t.subtext, fontStyle: "italic" }}>Thinking...</span>
+              ) : realTimeQuestion ? (
+                <span style={{ fontSize: 16, color: t.Text, fontWeight: 600, textAlign: "center", animation: "slideUpFade 0.3s ease" }}>
+                  {realTimeQuestion}
+                </span>
+              ) : (
+                <span style={{ fontSize: 15, color: t.subtext, fontStyle: "italic" }}>Keep writing. I'll offer a thought when you pause.</span>
+              )}
+            </div>
+          )}
+
           <div style={{ position: "relative", marginBottom: 30 }}>
             <textarea
-              className="neu-input notebook-paper"
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              rows={8}
-              placeholder={action ? "How do you feel about this Action and your streak?" : "Frustrated/Blocked, Overwhelmed, Discouraged, Burned Out..."}
+              className="neu-input notebook-paper" value={content} onChange={e => setContent(e.target.value)}
+              rows={8} placeholder="What are you feeling right now? Let it out..."
               style={{ width: "100%", resize: "vertical", paddingRight: 90, paddingTop: 20 }}
             />
-            <button onClick={handleTalkClick} className="neu-btn" style={{ position: "absolute", top: 16, right: 16, padding: "8px 18px", fontSize: 15, borderRadius: "12px", zIndex: 5, fontWeight: 800 }}>
-              Talk
-            </button>
-            {aiReply && (
-              <div className="neu-inset" style={{ padding: "20px", marginTop: 16, borderRadius: 16, borderLeft: `4px solid ${t.accent}` }}>
-                <div style={{ fontSize: 14, textTransform: "uppercase", fontWeight: 800, color: t.subtext, marginBottom: 8, letterSpacing: 1 }}>AI Coach Responds:</div>
-                <div style={{ fontSize: 18, color: t.text, lineHeight: 1.6 }}>{aiReply}</div>
-              </div>
-            )}
+            <button onClick={handleTalkClick} className="neu-btn" style={{ position: "absolute", top: 16, right: 16, padding: "8px 18px", fontSize: 15, borderRadius: "12px", zIndex: 5, fontWeight: 800 }}>Talk</button>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving} style={{ padding: "18px", fontSize: 20 }}>
+          <div style={{ display: "flex", gap: 20 }}>
+            <button className="neu-btn neu-btn-primary" onClick={handleSave} disabled={saving} style={{ flex: 1, padding: "18px", fontSize: 20 }}>
               {saving ? "Saving..." : "Save Entry"}
             </button>
-            <button className="neu-btn" onClick={onClose} style={{ padding: "18px", fontSize: 20 }}>
-              Cancel
-            </button>
+            <button className="neu-btn" onClick={onClose} style={{ padding: "18px", fontSize: 20 }}>Cancel</button>
           </div>
         </div>
+
       </div>
 
-      {showVoice && (
-        <VoiceRecorderModal
-          onClose={() => setShowVoice(false)}
-          onProcessed={(transcript, reply) => {
-            setContent(prev => prev ? prev + "\n\n" + transcript : transcript);
-            setAiReply(reply);
-          }}
-        />
-      )}
+      {showVoice && <VoiceRecorderModal onClose={() => setShowVoice(false)} onProcessed={(transcript) => setContent(prev => prev ? prev + "\n\n" + transcript : transcript)} />}
 
       <style>{`
-        @keyframes slideUpFade {
-          0% { opacity: 0; transform: translateY(40px) scale(0.95); }
-          100% { opacity: 1; transform: translateY(0px) scale(1); }
-        }
+        @keyframes slideUpFade { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0px); } }
       `}</style>
     </div>
   )
@@ -1705,78 +2262,17 @@ function TrophyRoomModal({ actions, streaks, onClose }) {
 // ─── PROFILE COMPONENTS ───────────────────────────────────────────────────────
 // ─── PROFILE COMPONENTS ───────────────────────────────────────────────────────
 function ProfilePage() {
-  const { t, user, logout, setPage, setViewJournalIn, setCompletionFlow } = useApp()
-  const [actions, setActions] = useState([])
-  const [reminders, setReminders] = useState([])
-  const [streaks, setStreaks] = useState({})
+  // 🟢 Grab everything instantly from the Global Cache
+  const {
+    t, user, logout, setPage, setViewJournalIn, setCompletionFlow,
+    actions, reminders, streaks, moods, liveProfile, isProfileLoading, fetchProfileData
+  } = useApp()
+
   const [profileTab, setProfileTab] = useState("Actions")
   const [view, setView] = useState(7)
-  const [loading, setLoading] = useState(true)
   const [viewReport, setViewReport] = useState(null)
-  const [moods, setMoods] = useState([])
   const [showTrophies, setShowTrophies] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
-
-  // 🟢 NEW: Holds live account data matching your Neon cloud table schema
-  const [liveProfile, setLiveProfile] = useState({
-    username: user?.name || "User",
-    email: "",
-    tier: "free"
-  })
-
-  function fetchProfileData() {
-    // 🟢 NEW: Hit our updated endpoint to query the real dynamic tier row on the fly
-    axios.get("/api/profile/me")
-      .then(res => {
-        setLiveProfile(res.data)
-      })
-      .catch(err => console.error("Could not sync live account tier data:", err))
-
-    axios.get("/api/profile/actions").then(async res => {
-      const fetchedActions = res.data.actions || []
-      setActions(fetchedActions)
-
-      const s = {}
-      // 🟢 THE FIX: Run all streak requests simultaneously instead of waiting in line!
-      await Promise.all(fetchedActions.map(async (a) => {
-        try {
-          const sr = await axios.get(`/api/profile/streak/${a.id}`)
-          s[a.id] = sr.data
-        } catch { }
-      }))
-
-      setStreaks(s)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-
-    axios.get("/api/profile/reminders").then(res => setReminders(res.data.reminders || [])).catch(() => { })
-
-    axios.get("/api/profile/mood").then(res => {
-      setMoods(res.data.moods || [])
-      if (res.data.moods?.length > 0) window.lastMood = res.data.moods[res.data.moods.length - 1].mood
-    }).catch(() => { })
-
-    axios.get("/api/profile/settings").then(res => {
-      const closing = res.data.closing_time || "20:00"
-      const [cH, cM] = closing.split(":").map(Number)
-      const now = new Date()
-      if (now.getHours() > cH || (now.getHours() === cH && now.getMinutes() >= cM)) {
-        const todayStr = now.toISOString().split("T")[0]
-        if (!localStorage.getItem(`closing_prompt_${todayStr}`)) {
-          localStorage.setItem(`closing_prompt_${todayStr}`, "1")
-          if (window.confirm("Closing the Day: Are you in a mood to Journal-In your day?")) {
-            setGenericJournalModal(true)
-          }
-        }
-      }
-    }).catch(() => { })
-  }
-
-  useEffect(() => {
-    fetchProfileData()
-    window.addEventListener("refresh-profile", fetchProfileData)
-    return () => window.removeEventListener("refresh-profile", fetchProfileData)
-  }, [])
 
   const activeActions = actions.filter(a => a.is_active)
   const completedActions = actions.filter(a => !a.is_active)
@@ -1832,18 +2328,14 @@ function ProfilePage() {
             <button
               className="neu-btn"
               onClick={() => setPage("search")}
-              style={{
-                padding: "14px 24px",
-                fontSize: 18,
-                marginLeft: "126px",
-                marginTop: "0px"
-              }}
+              style={{ padding: "14px 24px", fontSize: 18, marginLeft: "126px" }}
             >
               Search
             </button>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <button className="neu-btn" onClick={() => setShowInsights(true)} style={{ padding: "14px 24px", fontSize: 18 }}>Insights</button>
+              <button className="neu-btn" onClick={() => setPage("insights")} style={{ padding: "14px 24px", fontSize: 18 }}>Insights</button>
               <button className="neu-btn" onClick={() => setShowTrophies(true)} style={{ padding: "14px 24px", fontSize: 18 }}>Trophies</button>
+              <button className="neu-btn" onClick={() => setPage("ai-chat")} style={{ padding: "14px 24px", fontSize: 18, color: t.accent }}>AI Coach</button>
               <button className="neu-btn" onClick={() => setPage("journal")} style={{ padding: "14px 24px", fontSize: 18 }}>Journal</button>
               <button className="neu-btn" onClick={logout} style={{ padding: "14px 24px", fontSize: 18 }}>Log out</button>
             </div>
@@ -1857,19 +2349,14 @@ function ProfilePage() {
             >
               {liveProfile.username?.[0]?.toUpperCase() || "U"}
             </div>
-            {/* 🟢 READS DIRECTLY FROM LIVE STATE */}
+
             <p style={{ color: t.text, fontWeight: 800, fontSize: 32, marginBottom: 8 }}>{liveProfile.username}</p>
 
-            {/* 🟢 NEW VISUAL PREMIUM ACCOUNT BADGE DISPLAY */}
             <div
               className="neu-inset"
               style={{
-                padding: "6px 16px",
-                borderRadius: "12px",
-                fontSize: 14,
-                fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "1px",
+                padding: "6px 16px", borderRadius: "12px", fontSize: 14, fontWeight: 800,
+                textTransform: "uppercase", letterSpacing: "1px",
                 color: liveProfile.tier !== "free" ? t.accent : t.subtext,
                 display: "inline-block"
               }}
@@ -1887,36 +2374,37 @@ function ProfilePage() {
       </div>
 
       <div style={{ padding: "20px 24px 90px" }}>
-        {loading && <BreathingLoader />}
+        {isProfileLoading && activeActions.length === 0 && <BreathingLoader />}
 
-        {!loading && profileTab === "Actions" && activeActions.length === 0 && <div style={{ textAlign: "center", padding: "70px 0", color: t.subtext, fontWeight: 600, fontSize: 22 }}>You have no pending actions.</div>}
-        {!loading && profileTab === "Actions" && (
+        {!isProfileLoading && profileTab === "Actions" && activeActions.length === 0 && <div style={{ textAlign: "center", padding: "70px 0", color: t.subtext, fontWeight: 600, fontSize: 22 }}>You have no pending actions.</div>}
+        {profileTab === "Actions" && activeActions.length > 0 && (
           <div className="action-grid">
             {activeActions.map(a => <ProfileActionCard key={a.id} a={a} isCompletedTab={false} streakData={streaks[a.id]} onViewReport={setViewReport} onCompleteTrigger={(act) => setCompletionFlow({ action: act, step: 'difficulty', intent: 'finish' })} />)}
           </div>
         )}
 
-        {!loading && profileTab === "Completed" && completedActions.length === 0 && <div style={{ textAlign: "center", padding: "70px 0", color: t.subtext, fontWeight: 600, fontSize: 22 }}>No completed actions yet.</div>}
-        {!loading && profileTab === "Completed" && (
+        {!isProfileLoading && profileTab === "Completed" && completedActions.length === 0 && <div style={{ textAlign: "center", padding: "70px 0", color: t.subtext, fontWeight: 600, fontSize: 22 }}>No completed actions yet.</div>}
+        {profileTab === "Completed" && completedActions.length > 0 && (
           <div className="action-grid">
-            {completedActions.map(a => <ProfileActionCard key={a.id} a={a} isCompletedTab={true} streakData={streaks[a.id]} onViewReport={setViewReport} onCompleteTrigger={() => fetchProfileData()} onReviewFlowTrigger={(act) => setCompletionFlow({ action: act, step: 'review' })} />)}
+            {/* 🟢 FIXED: Passed 'true' to fetchProfileData to force an update if they restart an action! */}
+            {completedActions.map(a => <ProfileActionCard key={a.id} a={a} isCompletedTab={true} streakData={streaks[a.id]} onViewReport={setViewReport} onCompleteTrigger={() => fetchProfileData(true)} onReviewFlowTrigger={(act) => setCompletionFlow({ action: act, step: 'review' })} />)}
           </div>
         )}
 
-        {!loading && profileTab === "Reminders" && activeActions.length === 0 && <div style={{ textAlign: "center", padding: "70px 0", color: t.subtext, fontWeight: 600, fontSize: 22 }}>No active actions.</div>}
-        {!loading && profileTab === "Reminders" && (
+        {!isProfileLoading && profileTab === "Reminders" && activeActions.length === 0 && <div style={{ textAlign: "center", padding: "70px 0", color: t.subtext, fontWeight: 600, fontSize: 22 }}>No active actions.</div>}
+        {profileTab === "Reminders" && activeActions.length > 0 && (
           <div className="action-grid">
             {activeActions.map(a => {
               const rem = reminders.find(r => r.action_id === a.id)
-              return <ReminderListCard key={a.id} action={a} rem={rem} onEditTrigger={() => fetchProfileData()} />
+              return <ReminderListCard key={a.id} action={a} rem={rem} onEditTrigger={() => fetchProfileData(true)} />
             })}
           </div>
         )}
 
-        {!loading && profileTab === "Streak-Mood" && (
+        {profileTab === "Streak-Mood" && (
           <>
             <div style={{ maxWidth: 760, margin: "0 auto" }}>
-              <MoodWidget onMoodLogged={fetchProfileData} />
+              <MoodWidget onMoodLogged={() => fetchProfileData(true)} />
               <ElasticSlider options={[7, 30, 90, 365]} value={view} onChange={setView} />
             </div>
 
@@ -1937,21 +2425,8 @@ function ProfilePage() {
       </div>
 
       {viewReport && <ReportModal actionText={viewReport.text} history={viewReport.history} reasons={viewReport.reasons} journals={viewReport.journals} onClose={() => setViewReport(null)} />}
-
       {showTrophies && <TrophyRoomModal actions={actions} streaks={streaks} onClose={() => setShowTrophies(false)} />}
-
-      {showInsights && (
-        <InsightsModal
-          actions={actions}
-          moods={moods}
-          user={user}
-          onClose={() => setShowInsights(false)}
-          onTriggerUpgrade={() => {
-            setShowInsights(false);
-            setPage("edit-profile");
-          }}
-        />
-      )}
+      {showInsights && <InsightsModal actions={actions} moods={moods} user={user} onClose={() => setShowInsights(false)} onTriggerUpgrade={() => { setShowInsights(false); setPage("edit-profile"); }} />}
     </div>
   )
 }
@@ -2179,6 +2654,9 @@ function JournalPage() {
   const [editContent, setEditContent] = useState("")
   const [filterCat, setFilterCat] = useState("All")
 
+  // The state to track the active analysis report
+  const [viewingAnalysis, setViewingAnalysis] = useState(null);
+
   function fetchJournal() {
     axios.get("/api/profile/journal").then(res => { setLogs(res.data.journal || []); setLoading(false) }).catch(() => setLoading(false))
   }
@@ -2243,7 +2721,20 @@ function JournalPage() {
                 ) : (
                   <>
                     <p style={{ fontSize: 22, color: t.text, lineHeight: 1.6 }}>{log.content}</p>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14, marginTop: "auto", paddingTop: 24 }}>
+
+                    {/* 🟢 NEW: AI Analysis Button positioned cleanly next to the Edit button */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 14, marginTop: "auto", paddingTop: 24 }}>
+
+                      {log.ai_analysis && (
+                        <button
+                          className="neu-inset active-tab"
+                          onClick={() => setViewingAnalysis(log.ai_analysis)}
+                          style={{ padding: "10px 20px", fontSize: "16px", fontWeight: 800, color: t.accent, borderRadius: "12px", marginRight: "auto" }}
+                        >
+                          AI Analysis
+                        </button>
+                      )}
+
                       <button className="neu-btn" onClick={() => startEdit(log)} style={{ padding: '10px 20px', fontSize: 16 }}>Edit</button>
                       <button className="neu-btn" onClick={() => deleteLog(log)} style={{ padding: '10px 20px', fontSize: 16, color: '#c94c4c' }}>Delete</button>
                     </div>
@@ -2254,6 +2745,14 @@ function JournalPage() {
           })}
         </div>
       </div>
+
+      {/* 🟢 NEW: Triggers the Saved Analysis Modal to pop up */}
+      {viewingAnalysis && (
+        <SavedAnalysisModal
+          data={viewingAnalysis}
+          onClose={() => setViewingAnalysis(null)}
+        />
+      )}
     </div>
   )
 }
@@ -2506,7 +3005,7 @@ function InsightsModal({ actions = [], moods = [], user, onClose, onTriggerUpgra
 
                   {/* THIS IS THE UPDATED BUTTON */}
                   <button onClick={handleGenerateClick} disabled={aiLoading} className="neu-btn neu-btn-primary" style={{ padding: "10px 18px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
-                    {aiLoading ? "Thinking..." : (user?.tier === "free" || !user?.tier) ? "Watch Ad to Unlock AI" : "Generate AI Report"}
+                    {aiLoading ? "Thinking..." : (user?.tier === "free" || !user?.tier) ? "Watch Ad to Unlock AI" : "Generate AI Analysis"}
                   </button>
                 </div>
 
@@ -2986,6 +3485,11 @@ function EditProfilePage() {
               </button>
             )}
           </div>
+          <div style={{ padding: "40px 20px", textAlign: "center", borderTop: `1px solid ${t.shadowDark}30`, marginTop: 40 }}>
+            <p style={{ fontSize: 14, color: t.subtext, lineHeight: 1.8, maxWidth: 800, margin: "0 auto" }}>
+              <strong>Medical Disclaimer:</strong> This app functions as an automated educational tool for mental wellness and self-reflection. It is not a licensed clinician, cannot diagnose medical conditions, and is not a replacement for professional therapy or medical care. If you are experiencing a crisis, please dial 988 (US) or contact local emergency services immediately.
+            </p>
+          </div>
 
         </div>
       </div>
@@ -3036,7 +3540,83 @@ export default function App() {
   const [genericJournalModal, setGenericJournalModal] = useState(false)
   const [shareModal, setShareModal] = useState(null)
 
-  const t = THEMES[themeName] || THEMES.calm
+  // 🟢 NEW: Holds the custom theme object from the database
+  const [customThemeObj, setCustomThemeObj] = useState(user?.custom_theme || null);
+  const [showThemeGenerator, setShowThemeGenerator] = useState(false);
+
+  // 🟢 FIXED: If the AI misses a color, it falls back to the Dark Theme instead of crashing!
+  const t = themeName === 'custom' && customThemeObj
+    ? { ...THEMES.dark, ...customThemeObj }
+    : (THEMES[themeName] || THEMES.calm);
+
+
+  // 🟢 NEW: GLOBAL PROFILE CACHE STATE
+  const [actions, setActions] = useState([]);
+  const [reminders, setReminders] = useState([]);
+  const [streaks, setStreaks] = useState({});
+  const [moods, setMoods] = useState([]);
+  const [liveProfile, setLiveProfile] = useState({ username: user?.name || "User", email: "", tier: "free" });
+  const [isProfileLoaded, setIsProfileLoaded] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+
+  // 🟢 NEW: GLOBAL FETCH ENGINE (Only fetches if empty, or forced)
+  const fetchProfileData = (force = false) => {
+    if (!token) return;
+    if (isProfileLoaded && !force) return;
+
+    setIsProfileLoading(true);
+
+    axios.get("/api/profile/me").then(res => setLiveProfile(res.data)).catch(() => { });
+
+    axios.get("/api/profile/actions").then(async res => {
+      const fetchedActions = res.data.actions || [];
+      setActions(fetchedActions);
+      const s = {};
+      await Promise.all(fetchedActions.map(async (a) => {
+        try { s[a.id] = (await axios.get(`/api/profile/streak/${a.id}`)).data; } catch { }
+      }));
+      setStreaks(s);
+      setIsProfileLoaded(true);
+      setIsProfileLoading(false);
+    }).catch(() => setIsProfileLoading(false));
+
+    axios.get("/api/profile/reminders").then(res => setReminders(res.data.reminders || [])).catch(() => { });
+
+    axios.get("/api/profile/mood").then(res => {
+      setMoods(res.data.moods || []);
+      if (res.data.moods?.length > 0) window.lastMood = res.data.moods[res.data.moods.length - 1].mood;
+    }).catch(() => { });
+
+    axios.get("/api/profile/settings").then(res => {
+      const closing = res.data.closing_time || "20:00";
+      const [cH, cM] = closing.split(":").map(Number);
+      const now = new Date();
+      if (now.getHours() > cH || (now.getHours() === cH && now.getMinutes() >= cM)) {
+        const todayStr = now.toISOString().split("T")[0];
+        if (!localStorage.getItem(`closing_prompt_${todayStr}`)) {
+          localStorage.setItem(`closing_prompt_${todayStr}`, "1");
+          if (window.confirm("Closing the Day: Are you in a mood to Journal-In your day?")) {
+            setGenericJournalModal(true);
+          }
+        }
+      }
+    }).catch(() => { });
+  };
+
+  // 🟢 NEW: CACHE TRIGGERS
+  // 1. Initial Load: Only fetch when the user actually looks at the profile
+  useEffect(() => {
+    if (page === "profile" && !isProfileLoaded) fetchProfileData();
+  }, [page, isProfileLoaded]);
+
+  // 2. Global Listener: Quietly refreshes data in background if they log an action
+  useEffect(() => {
+    const handleRefresh = () => fetchProfileData(true);
+    window.addEventListener("refresh-profile", handleRefresh);
+    return () => window.removeEventListener("refresh-profile", handleRefresh);
+  }, [token]);
+
+
 
   function setThemeName(name) {
     setThemeNameState(name)
@@ -3093,6 +3673,18 @@ export default function App() {
 
     if (token) {
       setupAxios(token)
+
+      axios.get("/api/profile/me").then(res => {
+        if (res.data.custom_theme) {
+          setCustomThemeObj(res.data.custom_theme);
+          setUser(prev => {
+            const updatedUser = { ...prev, custom_theme: res.data.custom_theme };
+            localStorage.setItem("user", JSON.stringify(updatedUser));
+            return updatedUser;
+          });
+        }
+      }).catch(() => { });
+
       axios.get("/api/profile/reminders").then(res => {
         const rems = res.data.reminders || []
         rems.forEach(rem => {
@@ -3115,15 +3707,25 @@ export default function App() {
     return () => clearInterval(shadowInterval)
   }, [token])
 
-  const ctx = { t, themeName, setThemeName, user, setUser, token, setToken, logout: () => { localStorage.clear(); setToken(null); setUser(null); setupAxios(null); setPage("login"); }, scheduleNotification, cancelNotification, setCompletionFlow, setPage, searchQuery, setSearchQuery, activeCat, setActiveCat, goToCategory: (c) => { setSearchQuery(""); setActiveCat(c); setPage("search") }, setViewJournalIn, setGenericJournalModal, setActiveVideo, setShareModal }
+  const ctx = {
+    t, themeName, setThemeName, user, setUser, token, setToken, setShowThemeGenerator, customThemeObj,
+    setCustomThemeObj, logout: () => { localStorage.clear(); setToken(null); setUser(null); setupAxios(null); setPage("login"); },
+    scheduleNotification, cancelNotification, setCompletionFlow, setPage, searchQuery, setSearchQuery, activeCat, setActiveCat,
+    goToCategory: (c) => { setSearchQuery(""); setActiveCat(c); setPage("search") }, setViewJournalIn, setGenericJournalModal, setActiveVideo, setShareModal,
+    actions, reminders, streaks, moods, liveProfile, isProfileLoading, fetchProfileData
+  }
+
+
 
   function render() {
     if (page === "landing" || page === null) return <PublicLandingPage onNavigate={setPage} />
     if (page === "callback") return <AuthCallback onNavigate={setPage} />
     if (!user || !token) return <LoginPage onNavigate={setPage} />
     if (page === "profile") return <ProfilePage />
+    if (page === "insights") return <InsightsPage />
     if (page === "journal") return <JournalPage />
     if (page === "edit-profile") return <EditProfilePage />
+    if (page === "ai-chat") return <AiCoachPage />
     return <SearchPage />
   }
 
@@ -3205,10 +3807,160 @@ export default function App() {
         {viewJournalIn && <JournalInModal action={viewJournalIn} onClose={() => setViewJournalIn(null)} onSaved={() => window.dispatchEvent(new Event("refresh-journal"))} />}
         {genericJournalModal && <JournalInModal action={null} onClose={() => setGenericJournalModal(false)} onSaved={() => window.dispatchEvent(new Event("refresh-journal"))} />}
         {shareModal && <ShareModal action={shareModal.action} context={shareModal.context} onClose={() => setShareModal(null)} onFinish={() => setShareModal(null)} />}
+
+        {showThemeGenerator && <ThemeGeneratorModal onClose={() => setShowThemeGenerator(false)} />}
+
       </div>
     </AppCtx.Provider>
   )
 }
+
+// ─── AI IMAGE THEME GENERATOR MODAL ──────────────────────────────────────────
+// ─── AI IMAGE THEME GENERATOR MODAL ──────────────────────────────────────────
+function ThemeGeneratorModal({ onClose }) {
+  const { t, user, setUser, setCustomThemeObj, setThemeName } = useApp();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [base64Data, setBase64Data] = useState(null);
+  const [mimeType, setMimeType] = useState(null);
+
+  // 🟢 State to hold the verified live tier from the database
+  const [verifiedTier, setVerifiedTier] = useState(user?.tier || "free");
+
+  // 🟢 Fetch the absolute truth from the backend the moment the modal opens
+  useEffect(() => {
+    axios.get("/api/profile/me")
+      .then(res => {
+        if (res.data && res.data.tier) {
+          setVerifiedTier(res.data.tier);
+          setUser(prev => ({ ...prev, tier: res.data.tier }));
+        }
+      })
+      .catch(e => console.error("Could not verify user tier"));
+  }, []);
+
+  function handleFileChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload a valid image file.");
+      return;
+    }
+
+    setMimeType(file.type);
+    setPreviewUrl(URL.createObjectURL(file));
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setBase64Data(reader.result.split(',')[1]);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function triggerThemeGeneration() {
+    if (!base64Data) return;
+
+    // Check the live verifiedTier instead of the stale user?.tier
+    if (verifiedTier === "pro" || verifiedTier === "paid") {
+      executeBackendAI();
+      return;
+    }
+
+    // Free Users must watch an Ad!
+    setLoading(true);
+    setError("");
+    if (window.adsbygoogle) {
+      try {
+        window.adsbygoogle.push({
+          rewarded: {
+            adDismissed: () => executeBackendAI(),
+            adError: () => { setLoading(false); setError("Please disable your adblocker to unlock this feature."); }
+          }
+        });
+      } catch (err) {
+        setLoading(false); setError("Ad network failed to load.");
+      }
+    } else {
+      setLoading(false); setError("Please disable your adblocker to use this feature for free.");
+    }
+  }
+
+  async function executeBackendAI() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await axios.post("/api/profile/theme/generate-from-image", {
+        image_b64: base64Data,
+        mime_type: mimeType
+      });
+
+      if (res.data.success) {
+        setCustomThemeObj(res.data.theme);
+
+        // 🟢 FIXED: Hard-saves the theme into the browser's physical storage!
+        setUser(prev => {
+          const updatedUser = { ...prev, custom_theme: res.data.theme };
+          localStorage.setItem("user", JSON.stringify(updatedUser));
+          return updatedUser;
+        });
+
+        setThemeName("custom");
+        onClose();
+      } else {
+        setError(res.data.error);
+      }
+    } catch (e) {
+      setError("Failed to communicate with AI server.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="glass-modal">
+      <div className="neu-card" style={{ padding: "40px", maxWidth: 500, width: "100%", textAlign: "center" }}>
+
+        <div style={{ fontSize: 28, fontWeight: 800, color: t.text, marginBottom: 12 }}>AI Aesthetic Generator</div>
+        <div style={{ fontSize: 16, color: t.subtext, marginBottom: 32, lineHeight: 1.6 }}>
+          Upload an image, artwork, or photo. Our AI will analyze the aesthetics and generate a balanced Neumorphic theme for your app.
+        </div>
+
+        {error && <div style={{ color: "#c94c4c", fontWeight: 700, marginBottom: 20 }}>{error}</div>}
+
+        <label style={{ display: "block", marginBottom: 32, cursor: "pointer" }}>
+          {previewUrl ? (
+            <img src={previewUrl} alt="Preview" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 16, border: `3px solid ${t.accent}` }} />
+          ) : (
+            <div className="neu-inset" style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 16, border: `2px dashed ${t.subtext}` }}>
+              <span style={{ fontSize: 18, color: t.subtext, fontWeight: 700 }}>Tap to select an image</span>
+            </div>
+          )}
+          <input type="file" accept="image/*" onChange={handleFileChange} style={{ display: "none" }} />
+        </label>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <button
+            className="neu-btn neu-btn-primary"
+            onClick={triggerThemeGeneration}
+            disabled={loading || !base64Data}
+            style={{ padding: "18px", fontSize: 18, width: "100%" }}
+          >
+            {loading ? "AI is designing your app..." : (verifiedTier === "free" || !verifiedTier) ? "Watch Ad to Generate Theme" : "Generate Custom Theme"}
+          </button>
+
+          <button className="neu-btn" onClick={onClose} disabled={loading} style={{ padding: "16px", fontSize: 18, width: "100%" }}>
+            Cancel
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 
 // ─── VOICE RECORDER MODAL ────────────────────────────────────────────────────
 function VoiceRecorderModal({ onClose, onProcessed }) {
@@ -3303,6 +4055,296 @@ function VoiceRecorderModal({ onClose, onProcessed }) {
 
         {!processing && (
           <button onClick={onClose} className="neu-btn-flat" style={{ marginTop: 20, width: "100%", color: t.subtext }}>Cancel</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── AI WELL-BEING COACH PAGE (PRO ONLY) ────────────────────────────────────
+// ─── AI WELL-BEING COACH PAGE (PRO ONLY) ────────────────────────────────────
+function AiCoachPage() {
+  const { t, setPage, user } = useApp();
+  const [hasAccepted, setHasAccepted] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Sidebar & Search State
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Chat State
+  const [messages, setMessages] = useState([]);
+  const [inputMsg, setInputMsg] = useState("");
+  const [replyTo, setReplyTo] = useState(null); // { id, content }
+  const [isAnswering, setIsAnswering] = useState(false);
+
+  const endOfMessagesRef = useRef(null);
+
+  useEffect(() => {
+    axios.get("/api/profile/coach/disclaimer")
+      .then(res => {
+        setHasAccepted(res.data.accepted);
+        if (res.data.accepted) fetchSessions();
+        setCheckingAuth(false);
+      })
+      .catch(err => {
+        alert("The AI Well-Being Coach is a Pro-exclusive feature.");
+        setPage("profile");
+      });
+  }, []);
+
+  useEffect(() => {
+    endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isAnswering]);
+
+  const fetchSessions = () => {
+    axios.get("/api/profile/coach/sessions").then(res => setSessions(res.data.sessions));
+  };
+
+  const acceptDisclaimer = async () => {
+    await axios.post("/api/profile/coach/disclaimer");
+    setHasAccepted(true);
+    fetchSessions();
+  };
+
+  const createNewChat = async () => {
+    const res = await axios.post("/api/profile/coach/sessions");
+    fetchSessions();
+    setActiveSessionId(res.data.id);
+    setMessages([]);
+  };
+
+  const loadSession = async (id) => {
+    setActiveSessionId(id);
+    const res = await axios.get(`/api/profile/coach/sessions/${id}`);
+    setMessages(res.data.messages);
+    setReplyTo(null);
+  };
+
+  // 🟢 NEW: Delete Session Handler
+  const deleteSession = async (id) => {
+    if (!window.confirm("Are you sure you want to permanently delete this chat session?")) return;
+    try {
+      await axios.delete(`/api/profile/coach/sessions/${id}`);
+      if (activeSessionId === id) {
+        setActiveSessionId(null);
+        setMessages([]);
+      }
+      fetchSessions();
+    } catch (e) {
+      alert("Failed to delete session.");
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!inputMsg.trim() || !activeSessionId) return;
+
+    const newMsg = { id: Date.now(), role: "user", content: inputMsg, reply_content: replyTo?.content };
+    setMessages(prev => [...prev, newMsg]);
+    setIsAnswering(true);
+
+    const payload = { content: inputMsg, reply_to_id: replyTo?.id };
+    const savedInput = inputMsg; // Save it in case we need to roll back
+    setInputMsg("");
+    setReplyTo(null);
+
+    try {
+      const res = await axios.post(`/api/profile/coach/sessions/${activeSessionId}/message`, payload);
+
+      // 🟢 FIXED: Check if the backend returned an error safely!
+      if (res.data.error) {
+        alert(res.data.error);
+        // Rollback the user's message from the screen since it failed to send
+        setMessages(prev => prev.filter(m => m.id !== newMsg.id));
+        setInputMsg(savedInput); // Put their text back in the input box so they don't lose it
+        return;
+      }
+
+      setMessages(prev => [...prev, { id: Date.now() + 1, role: res.data.role, content: res.data.content }]);
+      if (sessions.length === 1 && sessions[0].title === "New Wellness Chat") fetchSessions();
+    } catch (e) {
+      alert("Failed to send message. Please check your connection.");
+      setMessages(prev => prev.filter(m => m.id !== newMsg.id));
+      setInputMsg(savedInput);
+    } finally {
+      setIsAnswering(false);
+    }
+  };
+
+  const filteredSessions = sessions.filter(s => s.title.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  if (checkingAuth) return <div className="layout-container"><BreathingLoader /></div>;
+
+  if (!hasAccepted) {
+    return (
+      <div className="glass-modal">
+        <div className="neu-card" style={{ padding: "50px", maxWidth: 600, width: "100%", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 20 }}>🛡️</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: t.text, marginBottom: 20 }}>Important Disclaimer</div>
+          <div className="neu-inset" style={{ padding: 24, borderRadius: 16, fontSize: 18, color: t.text, lineHeight: 1.7, textAlign: "left", marginBottom: 30, borderLeft: `4px solid #c94c4c` }}>
+            This app functions as an automated educational tool for mental wellness and self-reflection. It is not a licensed clinician, cannot diagnose medical conditions, and is not a replacement for professional therapy or medical care.
+            <br /><br />
+            All conversations are secured with Database-Level End-to-End Encryption.
+          </div>
+          <button className="neu-btn neu-btn-primary" onClick={acceptDisclaimer} style={{ width: "100%", padding: "20px", fontSize: 20 }}>
+            Understood
+          </button>
+          <button className="neu-btn-flat" onClick={() => setPage("profile")} style={{ width: "100%", padding: "20px", fontSize: 18, marginTop: 10 }}>
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    // 🟢 FIXED: Adjusted layout container bounds to perfectly lock into the viewport
+    <div className="layout-container" style={{ height: "100vh", padding: "24px", paddingTop: "24px", display: "flex", gap: 24, boxSizing: "border-box" }}>
+
+      {/* LEFT SIDEBAR: CHAT HISTORY */}
+      <div className="neu-card" style={{ width: 340, display: "flex", flexDirection: "column", padding: 20, borderRadius: 24, height: "100%", boxSizing: "border-box" }}>
+
+        {/* 🟢 FIXED: Pushed the Back button down by 70px to clear the Global Theme Button safely */}
+        <button className="neu-btn" onClick={() => setPage("profile")} style={{ padding: "12px", marginBottom: 24, marginTop: 70, fontWeight: 700 }}>← Back to Profile</button>
+
+        <button className="neu-btn neu-btn-primary" onClick={createNewChat} style={{ padding: "16px", fontSize: 18, marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <span style={{ fontSize: 24, lineHeight: 0 }}>+</span> New Session
+        </button>
+
+        <input
+          className="neu-input" placeholder="Search sessions..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+          style={{ width: "100%", padding: "12px 16px", marginBottom: 20 }}
+        />
+
+        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingRight: 8 }}>
+          {filteredSessions.map(s => (
+            <div key={s.id} onClick={() => loadSession(s.id)} className={activeSessionId === s.id ? "neu-inset active-tab" : "neu-btn"} style={{ padding: "16px", borderRadius: 16, cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ overflow: "hidden" }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: t.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.title}</div>
+                <div style={{ fontSize: 13, color: t.subtext, marginTop: 4 }}>{new Date(s.date).toLocaleDateString()}</div>
+              </div>
+
+              {/* 🟢 NEW: Delete Session Button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                className="neu-btn-flat"
+                style={{ minWidth: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", color: "#c94c4c", borderRadius: "50%", padding: 0 }}
+                title="Delete Chat"
+              >
+                🗑️
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* RIGHT CHAT WINDOW */}
+      {/* 🟢 FIXED: minWidth: 0 prevents the flex-container from stretching out of bounds on long text! */}
+      <div className="neu-inset" style={{ flex: 1, minWidth: 0, borderRadius: 24, display: "flex", flexDirection: "column", padding: 24, height: "100%", boxSizing: "border-box" }}>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 20, borderBottom: `1px solid ${t.shadowDark}30`, marginBottom: 20, flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: t.text }}>AI Well-Being Coach</div>
+            <div style={{ fontSize: 14, color: t.subtext, fontWeight: 700 }}>🔒 Encrypted Session</div>
+          </div>
+        </div>
+
+        {/* MESSAGES AREA */}
+        {/* 🟢 FIXED: minHeight: 0 ensures the scroll box doesn't push the input bar off the screen */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 24, paddingRight: 12 }}>
+          {!activeSessionId ? (
+            <div style={{ margin: "auto", textAlign: "center", color: t.subtext, fontSize: 18 }}>Select a session or start a new chat.</div>
+          ) : messages.length === 0 ? (
+            <div style={{ margin: "auto", textAlign: "center", color: t.subtext, fontSize: 18 }}>Say hello to your Well-Being Coach!</div>
+          ) : (
+            messages.map((msg, i) => {
+              const isUser = msg.role === "user";
+              const isCrisis = msg.role === "crisis_system";
+              return (
+                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", width: "100%" }}>
+
+                  {/* REPLY THREAD CONTEXT UI */}
+                  {msg.reply_content && (
+                    <div style={{ maxWidth: "70%", padding: "8px 16px", marginBottom: -10, backgroundColor: t.selectionBg, color: t.text, fontSize: 14, borderRadius: "16px 16px 0 0", opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      Replying to: "{msg.reply_content}"
+                    </div>
+                  )}
+
+                  {/* 🟢 FIXED: WHATSAPP-STYLE MESSAGE ROW */}
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 10, maxWidth: "85%", flexDirection: isUser ? "row-reverse" : "row" }}>
+
+                    {/* The Bubble */}
+                    <div
+                      className={isUser ? "neu-card" : "neu-inset"}
+                      style={{
+                        padding: "16px 24px",
+                        borderRadius: 24,
+                        fontSize: 18,
+                        color: isCrisis ? "#fff" : t.text,
+                        backgroundColor: isCrisis ? "#c94c4c" : undefined,
+                        border: isCrisis ? "none" : undefined,
+                        lineHeight: 1.5
+                      }}
+                    >
+                      {msg.content}
+                    </div>
+
+                    {/* 🟢 NEW: TELEGRAM/WHATSAPP STYLE REPLY ICON BUTTON (Only for Coach messages) */}
+                    {!isUser && !isCrisis && (
+                      <button
+                        onClick={() => setReplyTo({ id: msg.id, content: msg.content })}
+                        className="neu-btn"
+                        style={{ width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, padding: 0, opacity: 0.8, flexShrink: 0 }}
+                        title="Reply to this message"
+                      >
+                        ↩️
+                      </button>
+                    )}
+                  </div>
+
+                </div>
+              );
+            })
+          )}
+
+          {isAnswering && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px" }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                <span className="wave-bar" style={{ height: 16 }}></span>
+                <span className="wave-bar" style={{ height: 16 }}></span>
+                <span className="wave-bar" style={{ height: 16 }}></span>
+              </div>
+              <span style={{ fontSize: 16, color: t.subtext, fontStyle: "italic", fontWeight: 700 }}>Coach is typing...</span>
+            </div>
+          )}
+          <div ref={endOfMessagesRef} />
+        </div>
+
+        {/* INPUT AREA */}
+        {activeSessionId && (
+          <div style={{ marginTop: 20, flexShrink: 0 }}>
+            {replyTo && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", backgroundColor: t.selectionBg, borderRadius: "16px 16px 0 0", color: t.text }}>
+                <span style={{ fontSize: 14, fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Replying: "{replyTo.content}"</span>
+                <button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: t.subtext, cursor: "pointer", fontSize: 16 }}>✕</button>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 12 }}>
+              <input
+                className="neu-input"
+                placeholder="Type your message..."
+                value={inputMsg}
+                onChange={e => setInputMsg(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                style={{ flex: 1, padding: "18px 24px", fontSize: 18, borderRadius: replyTo ? "0 0 16px 16px" : 24 }}
+              />
+              <button className="neu-btn neu-btn-primary" onClick={sendMessage} disabled={isAnswering || !inputMsg.trim()} style={{ padding: "0 32px", fontSize: 18, borderRadius: 24, fontWeight: 800 }}>
+                Send
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
