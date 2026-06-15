@@ -6,8 +6,8 @@ import { GoogleMap, useJsApiLoader, Marker } from '@react-google-maps/api';
 // ─── THEMES ───────────────────────────────────────────────────────────────────
 const THEMES = {
   calm: {
-    bg: "#627D85", shadowDark: "#23454fff", shadowLight: "#a9c4cdff", text: "#4dc4b2ff", subtext: "#10a0bdff", accent: "#D0D4D0",
-    accentText: "#1a1b1d", tag: "#4dc4b2ff", streakOn: "#075f79ff", streakOff: "#c5cfca", placeholder: "rgba(162, 195, 232, 0.4)", bgRGB: "98, 125, 133", selectionBg: "rgba(208, 212, 208, 0.35)"
+    bg: "#FCEED1", shadowDark: "#656054ff", shadowLight: "#ffffffff", text: "#3c3833ff", subtext: "#d27a0ede", accent: "#8f8f8fff",
+    accentText: "#1a1b1d", tag: "#e4be73ff", streakOn: "#794807ff", streakOff: "#c5cfca", placeholder: "rgba(162, 195, 232, 0.4)", bgRGB: "252, 238, 209", selectionBg: "rgba(208, 212, 208, 0.35)"
   },
   light: {
     bg: "#e0e5ec", shadowDark: "#c4c1bc", shadowLight: "#ffffff", text: "#403d39", subtext: "#7a7771", accent: "#728c82",
@@ -1465,6 +1465,7 @@ function CustomActionModal({ onClose, onSuccess }) {
 
 
 // ─── ACTION REPORT MODAL ──────────────────────────────────────────────────────
+// ─── ACTION REPORT MODAL ──────────────────────────────────────────────────────
 function ReportModal({ actionText, history, reasons, journals, onClose }) {
   const { t } = useApp()
   const diffY = { "easy": 20, "medium": 50, "hard": 80 }
@@ -1483,9 +1484,13 @@ function ReportModal({ actionText, history, reasons, journals, onClose }) {
 
   return (
     <div className="glass-modal" onClick={onClose}>
-      <div className="neu-card" style={{ padding: "46px 40px", maxWidth: 680, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 30, fontWeight: 700, color: t.text, marginBottom: 14, textAlign: "center" }}>Action Report</div>
-        <div style={{ fontSize: 18, color: t.subtext, fontStyle: "italic", textAlign: "center", marginBottom: 34 }}>{actionText}</div>
+      <div className="neu-card" style={{ padding: "46px 40px", maxWidth: 680, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column", position: "relative" }} onClick={e => e.stopPropagation()}>
+
+        {/* 🟢 NEW: Minimal top-right close button */}
+        <button onClick={onClose} style={{ position: "absolute", top: 24, right: 24, background: "none", border: "none", color: t.subtext, fontSize: 24, cursor: "pointer", fontWeight: "bold" }}>✕</button>
+
+        <div style={{ fontSize: 30, fontWeight: 700, color: t.text, marginBottom: 34, textAlign: "center" }}>Action Report</div>
+        {/* 🟢 FIXED: The redundant action text subtitle was deleted from right here! */}
 
         <div style={{ overflowY: "auto", paddingRight: 10, flex: 1, display: "flex", flexDirection: "column", gap: 32, marginBottom: 24 }}>
 
@@ -1513,12 +1518,16 @@ function ReportModal({ actionText, history, reasons, journals, onClose }) {
             <div>
               <div style={{ fontSize: 17, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 1, marginBottom: 18, textAlign: "center" }}>Journal Entries</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {journals.map((j, i) => (
-                  <div key={i} className="neu-inset" style={{ padding: "20px 24px", borderRadius: 16 }}>
-                    <div style={{ fontSize: 14, color: t.subtext, fontWeight: 700, marginBottom: 8 }}>{new Date(j.date).toLocaleDateString()}</div>
-                    <div className="notebook-paper" style={{ padding: "0 !important", color: t.text }}>{j.content}</div>
-                  </div>
-                ))}
+                {journals.map((j, i) => {
+                  // 🟢 FIXED: Removes the redundant 'Logged for...' text from the journal logs!
+                  const cleanText = j.content.replace(/^Logged for .*?: /i, '');
+                  return (
+                    <div key={i} className="neu-inset" style={{ padding: "20px 24px", borderRadius: 16 }}>
+                      <div style={{ fontSize: 14, color: t.subtext, fontWeight: 700, marginBottom: 8 }}>{new Date(j.date).toLocaleDateString()}</div>
+                      <div className="notebook-paper" style={{ padding: "0 !important", color: t.text }}>{cleanText}</div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1537,7 +1546,8 @@ function ReportModal({ actionText, history, reasons, journals, onClose }) {
             </div>
           )}
         </div>
-        <button className="neu-btn neu-btn-primary" onClick={onClose} style={{ width: "100%", padding: "20px", fontSize: 20 }}>Close Report</button>
+
+        {/* 🟢 FIXED: The bulky Close button is deleted from down here */}
       </div>
     </div>
   )
@@ -3513,7 +3523,12 @@ function EditProfilePage() {
           <UpgradeModal
             currentTier={user?.tier || "free"}
             onClose={() => setShowUpgradeModal(false)}
-            onUpgrade={(newTier) => setUser({ ...user, tier: newTier })}
+            onUpgrade={(newTier) => {
+              // 🟢 FIXED: Force the new tier into localStorage permanently
+              const updatedUser = { ...user, tier: newTier };
+              setUser(updatedUser);
+              localStorage.setItem("user", JSON.stringify(updatedUser));
+            }}
           />
         )
       }
@@ -3675,14 +3690,17 @@ export default function App() {
       setupAxios(token)
 
       axios.get("/api/profile/me").then(res => {
+        // Safely set the custom theme if it exists
         if (res.data.custom_theme) {
           setCustomThemeObj(res.data.custom_theme);
-          setUser(prev => {
-            const updatedUser = { ...prev, custom_theme: res.data.custom_theme };
-            localStorage.setItem("user", JSON.stringify(updatedUser));
-            return updatedUser;
-          });
         }
+        // 🟢 FIXED: ALWAYS sync the user's true tier from the database on startup!
+        setUser(prev => {
+          if (!prev) return prev;
+          const updatedUser = { ...prev, tier: res.data.tier, custom_theme: res.data.custom_theme };
+          localStorage.setItem("user", JSON.stringify(updatedUser));
+          return updatedUser;
+        });
       }).catch(() => { });
 
       axios.get("/api/profile/reminders").then(res => {
