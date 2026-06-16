@@ -6,15 +6,15 @@ import { GoogleMap, useJsApiLoader, Marker } from '@react-google-maps/api';
 // ─── THEMES ───────────────────────────────────────────────────────────────────
 const THEMES = {
   calm: {
-    bg: "#FCEED1", shadowDark: "#656054ff", shadowLight: "#ffffffff", text: "#3c3833ff", subtext: "#d27a0ede", accent: "#8f8f8fff",
-    accentText: "#1a1b1d", tag: "#e4be73ff", streakOn: "#794807ff", streakOff: "#c5cfca", placeholder: "rgba(162, 195, 232, 0.4)", bgRGB: "252, 238, 209", selectionBg: "rgba(208, 212, 208, 0.35)"
+    bg: "#745a4dff", shadowDark: "#3c2b23ff", shadowLight: "#c1a79bff", text: "#242221ff", subtext: "#d27a0ede", accent: "#8f8f8fff",
+    accentText: "#494a4aff", tag: "#e4be73ff", streakOn: "#794807ff", streakOff: "#c5cfca", placeholder: "rgba(162, 195, 232, 0.4)", bgRGB: "116, 90, 77", selectionBg: "rgba(208, 212, 208, 0.35)"
   },
   light: {
     bg: "#e0e5ec", shadowDark: "#c4c1bc", shadowLight: "#ffffff", text: "#403d39", subtext: "#7a7771", accent: "#728c82",
     accentText: "#ffffff", tag: "#d8d5cf", streakOn: "#728c82", streakOff: "#d1cec8", placeholder: "rgba(64, 61, 57, 0.45)", bgRGB: "224, 229, 236", selectionBg: "rgba(114, 140, 130, 0.3)"
   },
   dark: {
-    bg: "#2b2d30", shadowDark: "#1a1c1e", shadowLight: "#3c3e42", text: "#dcdedf", subtext: "#8b8f94", accent: "#c49a78",
+    bg: "#060707ff", shadowDark: "#1a1c1e", shadowLight: "#3c3e42", text: "#dcdedf", subtext: "#8b8f94", accent: "#c49a78",
     accentText: "#1a1b1d", tag: "#222426", streakOn: "#c49a78", streakOff: "#202224", placeholder: "rgba(220, 222, 223, 0.4)", bgRGB: "43, 45, 48", selectionBg: "rgba(196, 154, 120, 0.3)"
   },
 }

@@ -1215,6 +1215,7 @@ def process_voice_journal(body: VoiceBody, user=Depends(get_current_user)):
 
         # 4. Use Gemini 2.5 Flash Lite's native audio capabilities
         from search_engine import client # Import your initialized client!
+       # ... your existing system_prompt and client.models.generate_content lines ...
         response = client.models.generate_content(
             model="gemini-2.5-flash-lite",
             contents=[
@@ -1226,7 +1227,15 @@ def process_voice_journal(body: VoiceBody, user=Depends(get_current_user)):
             )
         )
         
-        data = json.loads(response.text)
+        # 🟢 THE FIX: Clean out potential markdown code fences before parsing the JSON string!
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+        
+        data = json.loads(raw_text)
         return {
             "success": True, 
             "transcription": data.get("transcription", ""), 
@@ -1235,8 +1244,8 @@ def process_voice_journal(body: VoiceBody, user=Depends(get_current_user)):
         
     except Exception as e:
         print(f"❌ Voice AI Error: {e}")
-        return {"success": False, "error": "Failed to process audio. Ensure your microphone is working."}
-
+        return {"success": False, "error": f"Failed to process audio processing: {str(e)}"}
+        
 @app.put("/profile/journal/{log_id}")
 def update_journal(
     log_id: int, body: JournalUpdateBody, user=Depends(get_current_user)
