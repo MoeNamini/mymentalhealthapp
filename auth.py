@@ -456,11 +456,8 @@ def get_spotify_url(request: Request, user=Depends(get_current_user)):
 async def spotify_callback(code: str, state: str, request: Request):
     user_id = state
 
-    host = request.headers.get("host", "localhost:8000")
-    if "localhost" in host or "127.0.0.1" in host:
-        redirect_uri = "http://localhost:8000/auth/spotify/callback"
-    else:
-        redirect_uri = "https://mindactions-api.onrender.com/auth/spotify/callback"
+    # 1. 🟢 FIXED: Hardcoded directly to your production live backend endpoint
+    redirect_uri = "https://mindactions-api.onrender.com/auth/spotify/callback"
 
     client_id = os.getenv("SPOTIFY_CLIENT_ID")
     client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -498,4 +495,6 @@ async def spotify_callback(code: str, state: str, request: Request):
     cur.close()
     conn.close()
 
-    return RedirectResponse(f"{FRONTEND_URL}/profile")
+    # 2. 🟢 FIXED: Direct redirect straight to your production Vercel frontend view
+    production_frontend = "https://mymentalhealthapp.vercel.app"
+    return RedirectResponse(f"{production_frontend}/profile")

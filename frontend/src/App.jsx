@@ -14,8 +14,19 @@ const THEMES = {
     accentText: "#ffffff", tag: "#d8d5cf", streakOn: "#728c82", streakOff: "#d1cec8", placeholder: "rgba(64, 61, 57, 0.45)", bgRGB: "224, 229, 236", selectionBg: "rgba(114, 140, 130, 0.3)"
   },
   dark: {
-    bg: "#060707ff", shadowDark: "#1a1c1e", shadowLight: "#3c3e42", text: "#dcdedf", subtext: "#8b8f94", accent: "#c49a78",
-    accentText: "#1a1b1d", tag: "#222426", streakOn: "#c49a78", streakOff: "#202224", placeholder: "rgba(220, 222, 223, 0.4)", bgRGB: "43, 45, 48", selectionBg: "rgba(196, 154, 120, 0.3)"
+    bg: "#272727ff",
+    shadowDark: "#131314ff", // 🟢 Gently darker than bg (Creates natural depth)
+    shadowLight: "#454547ff", // 🟢 Gently lighter than bg (Creates natural highlights)
+    text: "#dcdedf",
+    subtext: "#8b8f94",
+    accent: "#cd8b55",
+    accentText: "#1a1b1d",
+    tag: "#222426",
+    streakOn: "#c49a78",
+    streakOff: "#3F3F44", // Matched to shadowDark to blend in
+    placeholder: "rgba(220, 222, 223, 0.45)", // Lightened so it's readable on dark gray
+    bgRGB: "40, 40, 40",
+    selectionBg: "rgba(205, 139, 85, 0.3)"
   },
 }
 
@@ -3981,6 +3992,7 @@ function ThemeGeneratorModal({ onClose }) {
 
 
 // ─── VOICE RECORDER MODAL ────────────────────────────────────────────────────
+// ─── VOICE RECORDER MODAL ────────────────────────────────────────────────────
 function VoiceRecorderModal({ onClose, onProcessed }) {
   const { t } = useApp();
   const [processing, setProcessing] = useState(false);
@@ -3991,6 +4003,8 @@ function VoiceRecorderModal({ onClose, onProcessed }) {
     startRecording();
     return () => {
       if (mediaRecorder.current && mediaRecorder.current.state === "recording") {
+        // 🟢 FIX 1: Disconnect the API trigger BEFORE stopping the recorder during cleanup!
+        mediaRecorder.current.onstop = null;
         mediaRecorder.current.stop();
         mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
       }
@@ -4000,8 +4014,14 @@ function VoiceRecorderModal({ onClose, onProcessed }) {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // 🟢 FIX 2: Wipe any corrupted data from previous React StrictMode mountings
+      audioChunks.current = [];
+
       mediaRecorder.current = new MediaRecorder(stream);
       mediaRecorder.current.ondataavailable = e => audioChunks.current.push(e.data);
+
+      // Only trigger API processing on a normal, intentional stop
       mediaRecorder.current.onstop = processAudio;
       mediaRecorder.current.start();
     } catch (e) {
@@ -4031,9 +4051,18 @@ function VoiceRecorderModal({ onClose, onProcessed }) {
         });
 
         if (res.data.success) {
-          onProcessed(res.data.transcription, res.data.ai_reply);
+          // 🟢 Optional: If you want to absolutely block Gemini's known static hallucinations:
+          let finalTex = res.data.transcription.trim();
+          const hallucinations = ["the dog ate my homework", "is it possible to do a video call?", "empty", "empty."];
+          if (hallucinations.includes(finalTex.toLowerCase())) {
+            finalTex = ""; // Wipe the text if it's a known static hallucination
+          }
+
+          if (finalTex) {
+            onProcessed(finalTex, res.data.ai_reply);
+          }
         } else {
-          alert(res.data.error); // Warns free users they need to upgrade
+          alert(res.data.error);
         }
       } catch (e) {
         alert("Error connecting to Voice AI.");
@@ -4043,8 +4072,8 @@ function VoiceRecorderModal({ onClose, onProcessed }) {
   };
 
   return (
-    <div className="glass-modal">
-      <div className="neu-card" style={{ padding: "40px", textAlign: "center", maxWidth: 360, width: "100%" }}>
+    <div className="glass-modal" onClick={e => e.stopPropagation()}>
+      <div className="neu-card" style={{ padding: "40px", textAlign: "center", maxWidth: 360, width: "100%" }} onClick={e => e.stopPropagation()}>
 
         <div style={{ fontSize: 24, fontWeight: 700, color: t.text, marginBottom: 30 }}>
           {processing ? "Analyzing Audio..." : "Listening..."}

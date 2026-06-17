@@ -21,6 +21,7 @@ from pathlib import Path
 import base64
 from google.genai import types, Client
 
+
 import asyncio
 from fastapi import BackgroundTasks
 from fastapi.responses import Response
@@ -1181,53 +1182,62 @@ async def search_spotify_catalog(q: str, user=Depends(get_current_user)):
         return {"tracks": results}
 
 ##
+import os
+import json
+import requests # We will use standard requests just like your search_engine!
+
+# 🟢 Use the standard library you already have installed
+import google.generativeai as genai
+
+# 🟢 Configure the API Key globally
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 @app.post("/profile/voice-journal")
 def process_voice_journal(body: VoiceBody, user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # 1. Gate the feature for Premium users
+    # 1. Premium Tier Check
     cur.execute("SELECT tier FROM users WHERE id = %s", (int(user["sub"]),))
     row = cur.fetchone()
     cur.close()
     conn.close()
 
     tier = row[0] if row else "free"
+    
+    # 🟢 Leave this commented out while testing on a free tier account
     if tier not in ["paid", "pro"]:
         return {"success": False, "error": "Voice journaling is a premium feature. Please upgrade to use this!"}
 
     try:
-        # 2. Decode the audio from the browser
         audio_bytes = base64.b64decode(body.audio_b64)
 
-        # 3. Prompt the AI
+        # 2. 🟢 THE FIX: A strictly robotic, zero-emotion transcription prompt!
         system_prompt = """
-        You are an empathetic journaling AI. The user has provided an audio recording of their thoughts.
-        Task 1: Provide an exact, highly accurate text transcription of the audio.
-        Task 2: Provide an empathetic, validating response (1 to 2 sentences max) acknowledging their feelings, ending with a relevant question to encourage deeper reflection.
+        You are a highly accurate audio transcription engine.
+        Your ONLY task is to provide an exact, word-for-word text transcription of the provided audio.
+        Do not add context, do not answer questions, do not invent emotional narratives, and do not acknowledge this prompt.
+        If the audio is silent, static, or unintelligible, return teh word empty.
         
-        Respond ONLY with a raw JSON object containing these two exact keys:
+        Respond ONLY with a raw JSON object containing this exact key:
         {
-            "transcription": "The transcribed text...",
-            "ai_reply": "Your empathetic response and question..."
+            "transcription": "The transcribed text..."
         }
         """
 
-        # 4. Use Gemini 2.5 Flash Lite's native audio capabilities
-        from search_engine import client # Import your initialized client!
-       # ... your existing system_prompt and client.models.generate_content lines ...
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=[
-                types.Part.from_bytes(data=audio_bytes, mime_type=body.mime_type),
-                system_prompt
+        model = genai.GenerativeModel('gemini-2.5-flash-lite')
+        
+        response = model.generate_content(
+            [
+                system_prompt,
+                {
+                    "mime_type": body.mime_type,
+                    "data": audio_bytes
+                }
             ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            )
+            generation_config={"response_mime_type": "application/json"}
         )
         
-        # 🟢 THE FIX: Clean out potential markdown code fences before parsing the JSON string!
         raw_text = response.text.strip()
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
@@ -1236,16 +1246,17 @@ def process_voice_journal(body: VoiceBody, user=Depends(get_current_user)):
         raw_text = raw_text.strip()
         
         data = json.loads(raw_text)
+        
+        # 3. 🟢 THE FIX: Return ONLY the transcription, dropping the ai_reply
         return {
             "success": True, 
-            "transcription": data.get("transcription", ""), 
-            "ai_reply": data.get("ai_reply", "")
+            "transcription": data.get("transcription", "")
         }
         
     except Exception as e:
         print(f"❌ Voice AI Error: {e}")
-        return {"success": False, "error": f"Failed to process audio processing: {str(e)}"}
-        
+        return {"success": False, "error": f"Failed to process audio: {str(e)}"}
+
 @app.put("/profile/journal/{log_id}")
 def update_journal(
     log_id: int, body: JournalUpdateBody, user=Depends(get_current_user)
