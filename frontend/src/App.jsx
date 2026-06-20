@@ -1620,6 +1620,56 @@ function SavedAnalysisModal({ data, onClose }) {
 }
 
 
+// ─── LOGOUT CONFIRMATION MODAL ──────────────────────────────────────────────
+function LogoutConfirmModal({ onConfirm, onCancel }) {
+  const { t } = useApp();
+  return (
+    <div className="glass-modal" onClick={onCancel}>
+      <div className="neu-card" style={{ padding: "40px", textAlign: "center", maxWidth: 360, width: "100%" }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: t.text, marginBottom: 16 }}>
+          Log Out?
+        </div>
+        <div style={{ fontSize: 16, color: t.subtext, marginBottom: 32 }}>
+          Are you sure you want to log out of your mental health journal space?
+        </div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <button onClick={onCancel} className="neu-btn-flat" style={{ flex: 1, padding: "14px" }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="neu-btn neu-btn-primary" style={{ flex: 1, padding: "14px", backgroundColor: "#d9534f", color: "#fff" }}>
+            Yes, Log Out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DELETE ACCOUNT CONFIRMATION MODAL ────────────────────────────────────────
+function DeleteAccountConfirmModal({ onConfirm, onCancel }) {
+  const { t } = useApp();
+  return (
+    <div className="glass-modal" onClick={onCancel}>
+      <div className="neu-card" style={{ padding: "40px", textAlign: "center", maxWidth: 380, width: "100%" }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: "#d9534f", marginBottom: 16 }}>
+          Delete Account Permanently?
+        </div>
+        <div style={{ fontSize: 15, color: t.subtext, marginBottom: 32, lineHeight: "1.5" }}>
+          This action <strong>cannot be undone</strong>. You will permanently lose all your journal history, streak stats, mood calendars, and custom action plans.
+        </div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <button onClick={onCancel} className="neu-btn-flat" style={{ flex: 1, padding: "14px" }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="neu-btn" style={{ flex: 1, padding: "14px", backgroundColor: "#d9534f", color: "#fff", fontWeight: "bold" }}>
+            Delete Forever
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
 // ─── JOURNAL IN MODAL ─────────────────────────────────────────────────────────
@@ -2302,6 +2352,8 @@ function ProfilePage() {
   cutoffDate.setDate(cutoffDate.getDate() - view)
   const filteredMoods = moods.filter(m => new Date(m.date) >= cutoffDate)
 
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+
   function StreakDots({ action }) {
     const data = streaks[action.id]
     if (!data) return null
@@ -2358,7 +2410,7 @@ function ProfilePage() {
               <button className="neu-btn" onClick={() => setShowTrophies(true)} style={{ padding: "14px 24px", fontSize: 18 }}>Trophies</button>
               <button className="neu-btn" onClick={() => setPage("ai-chat")} style={{ padding: "14px 24px", fontSize: 18, color: t.accent }}>AI Coach</button>
               <button className="neu-btn" onClick={() => setPage("journal")} style={{ padding: "14px 24px", fontSize: 18 }}>Journal</button>
-              <button className="neu-btn" onClick={logout} style={{ padding: "14px 24px", fontSize: 18 }}>Log out</button>
+              <button className="neu-btn" onClick={() => setShowLogoutConfirm(true)} style={{ padding: "14px 24px", fontSize: 18 }}>Log out</button>
             </div>
           </div>
 
@@ -2448,6 +2500,19 @@ function ProfilePage() {
       {viewReport && <ReportModal actionText={viewReport.text} history={viewReport.history} reasons={viewReport.reasons} journals={viewReport.journals} onClose={() => setViewReport(null)} />}
       {showTrophies && <TrophyRoomModal actions={actions} streaks={streaks} onClose={() => setShowTrophies(false)} />}
       {showInsights && <InsightsModal actions={actions} moods={moods} user={user} onClose={() => setShowInsights(false)} onTriggerUpgrade={() => { setShowInsights(false); setPage("edit-profile"); }} />}
+      {/* 🟢 PASTE THIS LOGOUT OVERLAY BLOCK HERE: */}
+      {showLogoutConfirm && (
+        <div className="glass-modal" onClick={() => setShowLogoutConfirm(false)}>
+          <div className="neu-card" style={{ padding: "40px", textAlign: "center", maxWidth: 360, width: "100%" }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 24, fontWeight: 700, color: t.text, marginBottom: 16 }}>Log Out?</div>
+            <div style={{ fontSize: 18, color: t.subtext, marginBottom: 32 }}>Are you sure you want to log out of your session?</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <button onClick={logout} className="neu-btn neu-btn-primary" style={{ padding: "14px", fontSize: 18 }}>Yes, Log Out</button>
+              <button onClick={() => setShowLogoutConfirm(false)} className="neu-btn" style={{ padding: "14px", fontSize: 18 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3584,6 +3649,10 @@ export default function App() {
   const [liveProfile, setLiveProfile] = useState({ username: user?.name || "User", email: "", tier: "free" });
   const [isProfileLoaded, setIsProfileLoaded] = useState(false);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
+
+  // Add these near your other useState hooks like showVoice, etc.
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // 🟢 NEW: GLOBAL FETCH ENGINE (Only fetches if empty, or forced)
   const fetchProfileData = (force = false) => {

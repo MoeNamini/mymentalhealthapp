@@ -480,8 +480,8 @@ def create_custom_action(body: CustomActionBody, user=Depends(get_current_user))
             
         # Insert action with video URL
         cur.execute("""
-            INSERT INTO actions (user_id, text, benefit, is_custom, video_url, video_start_time, is_active) 
-            VALUES (%s, %s, %s, TRUE, %s, %s, TRUE) RETURNING id
+            INSERT INTO actions (user_id, text, benefit, category, video_url, video_start_time, is_active) 
+            VALUES (%s, %s, %s, 'Customized', %s, %s, TRUE) RETURNING id
         """, (user_id, body.text, body.benefit, body.video_url, body.video_start_time))
         
         new_action_id = cur.fetchone()[0]
