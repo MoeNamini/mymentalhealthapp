@@ -15,6 +15,7 @@ from typing import Optional
 import google.generativeai as genai
 import json
 import datetime
+from datetime import datetime
 
 from pathlib import Path
 
@@ -38,6 +39,8 @@ import urllib.parse
 from cryptography.fernet import Fernet
 
 import time
+from pydantic import BaseModel
+from typing import Optional, List
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
@@ -989,10 +992,12 @@ def get_all_reminders(user=Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
     
+    # 🟢 ADDED: r.end_in_days and r.created_at to the SELECT query
     cur.execute("""
         SELECT r.action_id, r.reminder_type, r.frequency_type, r.frequency_value, 
                r.target_hour, r.target_minute, r.target_ampm, a.text,
-               r.loc_condition, r.loc_lat, r.loc_lng
+               r.loc_condition, r.loc_lat, r.loc_lng, 
+               r.end_in_days, r.created_at
         FROM reminders r 
         JOIN actions a ON a.id = r.action_id 
         JOIN user_actions ua ON ua.action_id = r.action_id AND ua.user_id = r.user_id
@@ -1011,11 +1016,14 @@ def get_all_reminders(user=Depends(get_current_user)):
             if day == today - timedelta(days=i): streak += 1
             else: break
             
+        # 🟢 ADDED: Passed the new columns into the output dictionary
         results.append({
             "action_id": act_id, "reminder_type": r[1], "frequency_type": r[2], 
             "frequency_value": r[3], "target_hour": r[4], "target_minute": r[5], 
             "target_ampm": r[6], "text": r[7], "streak": streak,
-            "loc_condition": r[8], "loc_lat": r[9], "loc_lng": r[10] # 🟢 Included in the output
+            "loc_condition": r[8], "loc_lat": r[9], "loc_lng": r[10],
+            "end_in_days": r[11], 
+            "created_at": str(r[12]) if r[12] else None # Converts datetime to string for JSON
         })
         
     cur.close()
@@ -2385,6 +2393,128 @@ def get_messages(session_id: int, user=Depends(get_current_user)):
     conn.close()
     return {"messages": messages}
 
+
+# --- WIDGET PYDANTIC MODELS ---
+class WidgetItemBody(BaseModel):
+    item_type: str # "action" or "journal"
+    action_id: Optional[int] = None
+    journal_category: Optional[str] = None
+    journal_content: Optional[str] = None
+
+class CreateWidgetBody(BaseModel):
+    name: str
+    items: Optional[List[WidgetItemBody]] = []
+
+# --- WIDGET ENDPOINTS ---
+
+@app.get("/profile/widgets")
+def get_widgets(user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # 1. Fetch all widget buttons for the user
+    cur.execute("SELECT id, name FROM widgets WHERE user_id = %s ORDER BY created_at ASC", (int(user["sub"]),))
+    widgets_rows = cur.fetchall()
+    
+    results = []
+    for w in widgets_rows:
+        w_id = w[0]
+        w_name = w[1]
+        
+        # 2. Fetch all bundled items attached to this widget, joining with user_actions for media toggles
+        cur.execute("""
+            SELECT wi.id, wi.order_index, wi.item_type, wi.action_id, wi.journal_category, wi.journal_content,
+                   a.text as action_title, ua.is_audio, ua.is_video, ua.spotify_uri, ua.video_start_time, ua.video_url
+            FROM widget_items wi
+            LEFT JOIN actions a ON a.id = wi.action_id
+            LEFT JOIN user_actions ua ON ua.action_id = wi.action_id AND ua.user_id = %s
+            WHERE wi.widget_id = %s
+            ORDER BY wi.order_index ASC
+        """, (int(user["sub"]), w_id))
+        
+        items_rows = cur.fetchall()
+        items = []
+        for i in items_rows:
+            items.append({
+                "id": i[0],
+                "order_index": i[1],
+                "item_type": i[2],
+                "action_id": i[3],
+                "journal_category": i[4],
+                "journal_content": i[5],
+                "action_title": i[6],
+                "is_audio": i[7],
+                "is_video": i[8],
+                "spotify_uri": i[9],
+                "video_start_time": i[10],
+                "video_url": i[11]
+            })
+            
+        results.append({
+            "id": w_id,
+            "name": w_name,
+            "items": items
+        })
+        
+    cur.close()
+    conn.close()
+    return {"widgets": results}
+
+@app.post("/profile/widgets")
+def create_widget(body: CreateWidgetBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Create the widget button
+    cur.execute("INSERT INTO widgets (user_id, name) VALUES (%s, %s) RETURNING id", (int(user["sub"]), body.name))
+    widget_id = cur.fetchone()[0]
+    
+    # If the user passed items (like a pre-recorded journal), insert them immediately
+    if body.items:
+        for idx, item in enumerate(body.items):
+            cur.execute("""
+                INSERT INTO widget_items (widget_id, order_index, item_type, action_id, journal_category, journal_content)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (widget_id, idx, item.item_type, item.action_id, item.journal_category, item.journal_content))
+            
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True, "widget_id": widget_id}
+
+@app.post("/profile/widgets/{widget_id}/items")
+def add_widget_item(widget_id: int, body: WidgetItemBody, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Security: Verify the user owns this widget
+    cur.execute("SELECT id FROM widgets WHERE id = %s AND user_id = %s", (widget_id, int(user["sub"])))
+    if not cur.fetchone():
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    # Get the next available sequence order index
+    cur.execute("SELECT COALESCE(MAX(order_index), -1) + 1 FROM widget_items WHERE widget_id = %s", (widget_id,))
+    next_order = cur.fetchone()[0]
+    
+    cur.execute("""
+        INSERT INTO widget_items (widget_id, order_index, item_type, action_id, journal_category, journal_content)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (widget_id, next_order, body.item_type, body.action_id, body.journal_category, body.journal_content))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
+
+@app.delete("/profile/widgets/{widget_id}")
+def delete_widget(widget_id: int, user=Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM widgets WHERE id = %s AND user_id = %s", (widget_id, int(user["sub"])))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"success": True}
 
 # ─── THE NEW MEGA-PROMPT SCHEMAS ───
 class ChatMessageBody(BaseModel):

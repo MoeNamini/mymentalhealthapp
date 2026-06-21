@@ -194,6 +194,11 @@ export function GlobalThemePicker() {
     </div>
   );
 }
+
+
+
+
+
 // ─── 2. PUBLIC LANDING PAGE (FOR GOOGLE ADSENSE) ─────────────────────────────
 // ─── PUBLIC LANDING PAGE ─────────────────────────────────────────────────────
 function PublicLandingPage({ onNavigate }) {
@@ -2534,22 +2539,51 @@ function ProfileActionCard({ a, isCompletedTab, onCompleteTrigger, onReviewFlowT
     if (onCompleteTrigger) onCompleteTrigger(a)
   }
 
-  // 🟢 NEW: Manual Trigger Handlers for the Buttons!
-  function playAudio(e) {
+  //  NEW: Manual Trigger Handlers for the Buttons!
+  //  FIXED: Handles both Base64 DB strings and securely fetches new generations
+  // 🟢 FIXED Web App Audio Player
+  async function playAudio(e) {
     e.stopPropagation();
-    new Audio(`/api/audio/${a.id}`).play().catch(err => console.error("Audio failed:", err));
-  }
 
-  function playVideo(e) {
-    e.stopPropagation();
-    if (a.embed_url) {
-      const startTime = parseInt(a.video_start_time) || 0;
-      // 🟢 The &start= parameter forces YouTube to jump to that second
-      const finalUrl = `${a.embed_url}?autoplay=1&start=${startTime}`;
-      console.log("Playing Video:", finalUrl); // Just in case we need to verify!
-      setActiveVideo({ url: finalUrl, title: a.video_title });
+    try {
+      // 1. If it's already in the DB, glue the prefix on so the browser understands it!
+      if (a.audio_data) {
+        // Check if it already has the prefix. If not, add it.
+        const hasPrefix = a.audio_data.startsWith("data:audio");
+        const audioSrc = hasPrefix ? a.audio_data : `data:audio/wav;base64,${a.audio_data}`;
+
+        new Audio(audioSrc).play().catch(err => console.error("DB Audio failed:", err));
+        return;
+      }
+
+      // 2. If it's missing, fetch it from your Render backend (NO /api/ in the URL)
+      const res = await axios.get(`https://mindactions-api.onrender.com/audio/${a.id}`, {
+        responseType: 'blob'
+      });
+
+      // 3. Play the downloaded blob
+      const localUrl = URL.createObjectURL(res.data);
+      new Audio(localUrl).play();
+
+    } catch (err) {
+      console.error("Audio fetch failed:", err);
     }
   }
+
+  // Add this right next to your playAudio function!
+  const playVideo = (e) => {
+    e.stopPropagation();
+
+    // Get the video URL from your action object
+    const videoUrl = a.embed_url || a.video_url;
+
+    if (videoUrl) {
+      // Opens the YouTube/Video link in a new tab
+      window.open(videoUrl, '_blank');
+    } else {
+      console.error("No video URL found for this action.");
+    }
+  };
 
   function playSpotify(e) {
     e.stopPropagation();
@@ -2655,32 +2689,39 @@ function ProfileActionCard({ a, isCompletedTab, onCompleteTrigger, onReviewFlowT
   )
 }
 
+
+// Paste this helper function right above your ReminderListCard component
+// Keep this helper function right above the component
+function getRemainingDays(createdAt, endInDays) {
+  if (!createdAt || !endInDays) return null;
+
+  const startDate = new Date(createdAt);
+  const endDate = new Date(startDate.getTime() + (endInDays * 24 * 60 * 60 * 1000));
+  const today = new Date();
+
+  const diffTime = endDate - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  return diffDays > 0 ? diffDays : 0;
+}
+
 function ReminderListCard({ action, rem, onEditTrigger }) {
   const { t } = useApp()
   const [showReminder, setShowReminder] = useState(false)
 
   let nextString = "No reminder set"
-  let typeBlock = null
+  let box1Label = "Time"
+  let box1Value = "08:00 AM"
 
   if (rem) {
     if (rem.reminder_type === "widget") {
-      nextString = "Next reminder: click on widget"
-      typeBlock = (
-        <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 28px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Type</span>
-          <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}>By Widget</span>
-        </button>
-      )
-
+      nextString = "Click on widget"
+      box1Label = "Type"
+      box1Value = "By Widget"
     } else if (rem.reminder_type === "location") {
-      nextString = `Trigger: When I ${rem.loc_condition || 'arrive'} at location`
-      typeBlock = (
-        <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Location</span>
-          <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}> Map Pin</span>
-        </button>
-      )
-
+      nextString = `When I ${rem.loc_condition || 'arrive'} at location`
+      box1Label = "Location"
+      box1Value = "Map Pin"
     } else if (rem.reminder_type === "time") {
       const now = new Date(); const target = new Date()
       let h = parseInt(rem.target_hour || "08")
@@ -2690,43 +2731,63 @@ function ReminderListCard({ action, rem, onEditTrigger }) {
 
       let nextH = target.getHours(); const nextAmPm = nextH >= 12 ? 'PM' : 'AM'
       nextH = nextH % 12 || 12; const nextM = target.getMinutes().toString().padStart(2, '0')
-      nextString = `Next reminder: ${String(nextH).padStart(2, '0')}:${nextM} ${nextAmPm}`
 
-      typeBlock = (
-        <>
-          <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Time</span>
-            <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}>{rem.target_hour}:{rem.target_minute} {rem.target_ampm}</span>
-          </button>
-          {rem.frequency_type && (
-            <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Repeats</span>
-              <span style={{ fontSize: 20, color: t.accent, fontWeight: 800 }}>{rem.frequency_value} {rem.frequency_type}(s)</span>
-            </button>
-          )}
-        </>
-      )
+      box1Label = "Time"
+      box1Value = `${rem.target_hour || "08"}:${rem.target_minute || "00"} ${rem.target_ampm || "PM"}`
+      nextString = `${String(nextH).padStart(2, '0')}:${nextM} ${nextAmPm}`
     }
-
   }
 
   return (
     <>
       <div className="neu-inset" style={{ padding: "30px 32px", marginBottom: 26, borderRadius: 22, display: 'flex', flexDirection: 'column' }}>
+
         <p style={{ fontSize: 22, fontWeight: 700, color: t.text, marginBottom: 24, lineHeight: 1.5 }}>{action.text}</p>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "auto" }}>
-          <div style={{ display: "flex", gap: 16 }}>
-            {typeBlock || (
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "auto", flexWrap: "wrap", gap: 16 }}>
+
+          {/* LEFT SIDE: Clickable Boxes */}
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {!rem ? (
               <button onClick={() => setShowReminder(true)} className="neu-btn neu-btn-primary" style={{ padding: "16px 28px", fontSize: 18 }}>
                 + Add Reminder
               </button>
+            ) : (
+              <>
+                {/* BOX 1: Time / Map / Widget */}
+                <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>{box1Label}</span>
+                  <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}>{box1Value}</span>
+                </button>
+
+                {/* BOX 2: Frequency */}
+                {rem.frequency_type && (
+                  <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Repeats</span>
+                    {/* Replaced hardcoded color with t.accent */}
+                    <span style={{ fontSize: 20, color: t.accent, fontWeight: 800 }}>{rem.frequency_value} {rem.frequency_type}(s)</span>
+                  </button>
+                )}
+
+                {/* BOX 3: End At Countdown */}
+                {rem.end_in_days && (
+                  <button onClick={() => setShowReminder(true)} className="neu-btn" style={{ padding: "16px 22px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    <span style={{ fontSize: 14, color: t.subtext, textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5 }}>Ends In</span>
+                    <span style={{ fontSize: 20, color: t.text, fontWeight: 800 }}>{getRemainingDays(rem.created_at, rem.end_in_days)} Days</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
+
+          {/* RIGHT SIDE: Next Reminder Info in Italic Accent */}
           <div style={{ fontSize: 16, color: t.subtext, fontWeight: 700, fontStyle: "italic", paddingBottom: 8 }}>
-            {nextString}
+            Next reminder: <span style={{ color: t.accent }}>{nextString}</span>
           </div>
+
         </div>
       </div>
+
       {showReminder && <ReminderModal action={action} isEdit={!!rem} onClose={() => setShowReminder(false)} onSaved={() => { onEditTrigger(); setShowReminder(false); }} />}
     </>
   )
