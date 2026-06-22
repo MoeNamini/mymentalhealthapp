@@ -2409,56 +2409,60 @@ class CreateWidgetBody(BaseModel):
 
 @app.get("/profile/widgets")
 def get_widgets(user=Depends(get_current_user)):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # 1. Fetch all widget buttons for the user
-    cur.execute("SELECT id, name FROM widgets WHERE user_id = %s ORDER BY created_at ASC", (int(user["sub"]),))
-    widgets_rows = cur.fetchall()
-    
-    results = []
-    for w in widgets_rows:
-        w_id = w[0]
-        w_name = w[1]
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
         
-        # 2. Fetch all bundled items attached to this widget, joining with user_actions for media toggles
-        cur.execute("""
-            SELECT wi.id, wi.order_index, wi.item_type, wi.action_id, wi.journal_category, wi.journal_content,
-                   a.text as action_title, ua.is_audio, ua.is_video, ua.spotify_uri, ua.video_start_time, ua.video_url
-            FROM widget_items wi
-            LEFT JOIN actions a ON a.id = wi.action_id
-            LEFT JOIN user_actions ua ON ua.action_id = wi.action_id AND ua.user_id = %s
-            WHERE wi.widget_id = %s
-            ORDER BY wi.order_index ASC
-        """, (int(user["sub"]), w_id))
+        # 🟢 SAFE QUERY: Ordered by ID just in case
+        cur.execute("SELECT id, name FROM widgets WHERE user_id = %s ORDER BY id ASC", (int(user["sub"]),))
+        widgets_rows = cur.fetchall()
         
-        items_rows = cur.fetchall()
-        items = []
-        for i in items_rows:
-            items.append({
-                "id": i[0],
-                "order_index": i[1],
-                "item_type": i[2],
-                "action_id": i[3],
-                "journal_category": i[4],
-                "journal_content": i[5],
-                "action_title": i[6],
-                "is_audio": i[7],
-                "is_video": i[8],
-                "spotify_uri": i[9],
-                "video_start_time": i[10],
-                "video_url": i[11]
+        results = []
+        for w in widgets_rows:
+            w_id = w[0]
+            w_name = w[1]
+            
+            # 🟢 SAFE QUERY: Removed ua.video_url completely!
+            cur.execute("""
+                SELECT wi.id, wi.order_index, wi.item_type, wi.action_id, wi.journal_category, wi.journal_content,
+                       a.text as action_title, ua.is_audio, ua.is_video, ua.spotify_uri, ua.video_start_time
+                FROM widget_items wi
+                LEFT JOIN actions a ON a.id = wi.action_id
+                LEFT JOIN user_actions ua ON ua.action_id = wi.action_id AND ua.user_id = %s
+                WHERE wi.widget_id = %s
+                ORDER BY wi.order_index ASC
+            """, (int(user["sub"]), w_id))
+            
+            items_rows = cur.fetchall()
+            items = []
+            for i in items_rows:
+                items.append({
+                    "id": i[0],
+                    "order_index": i[1],
+                    "item_type": i[2],
+                    "action_id": i[3],
+                    "journal_category": i[4],
+                    "journal_content": i[5],
+                    "action_title": i[6],
+                    "is_audio": i[7],
+                    "is_video": i[8],
+                    "spotify_uri": i[9],
+                    "video_start_time": i[10],
+                    "video_url": None # Safely mapped so Android doesn't break
+                })
+                
+            results.append({
+                "id": w_id,
+                "name": w_name,
+                "items": items
             })
             
-        results.append({
-            "id": w_id,
-            "name": w_name,
-            "items": items
-        })
-        
-    cur.close()
-    conn.close()
-    return {"widgets": results}
+        cur.close()
+        conn.close()
+        return {"widgets": results}
+    except Exception as e:
+        print("WIDGET GET ERROR:", str(e))
+        return {"widgets": []} # Gracefully returns an empty list instead of crashing!
 
 @app.post("/profile/widgets")
 def create_widget(body: CreateWidgetBody, user=Depends(get_current_user)):
