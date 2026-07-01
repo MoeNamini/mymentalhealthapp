@@ -76,7 +76,7 @@ def verify_google_login(body: GoogleLoginBody):
     # 1. Verify the token with Google's servers
     try:
         # ⚠️ PASTE THE EXACT SAME WEB CLIENT ID YOU USED IN ANDROID HERE:
-        CLIENT_ID = "YOUR_WEB_CLIENT_ID_FROM_GOOGLE_CLOUD.apps.googleusercontent.com"
+        CLIENT_ID = "708088590097-pt033tnunm65f7gstp240dgnb58avsnj.apps.googleusercontent.com"
         
         idinfo = id_token.verify_oauth2_token(
             body.idToken, 

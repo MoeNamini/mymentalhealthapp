@@ -750,16 +750,17 @@ function LoginPage({ onNavigate }) {
 
             {/* ─── THIRD-PARTY OAUTH BUTTON PROVIDERS ─── */}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <button onClick={() => window.location.href = "/api/auth/google"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                🌐 Continue with Google
+              {/* 🟢 FIXED: Hardcode the absolute URL to your Render backend so Vercel doesn't get confused! */}
+              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/api/auth/google"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                Continue with Google
               </button>
 
-              <button onClick={() => window.location.href = "/api/auth/twitter"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                𝕏 Continue with X (Twitter)
+              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/api/auth/twitter"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                Continue with X (Twitter)
               </button>
 
-              <button onClick={() => window.location.href = "/api/auth/linkedin"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                👔 Continue with LinkedIn
+              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/api/auth/linkedin"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                Continue with LinkedIn
               </button>
             </div>
           </>
