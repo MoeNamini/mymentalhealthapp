@@ -660,6 +660,7 @@ function LoginPage({ onNavigate }) {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -667,7 +668,12 @@ function LoginPage({ onNavigate }) {
     setError("")
     if (!email || !password) { setError("Please fill in all fields"); return }
     if (mode === "signup" && !name) { setError("Please enter your name"); return }
+    if (mode === "signup" && password !== confirmPassword) {
+      setError("Passwords do not match");
+      return
+    }
     setLoading(true)
+
     try {
       const url = mode === "login" ? "/api/auth/login" : "/api/auth/signup"
       const body = mode === "login" ? { email, password } : { name, email, password }
@@ -721,6 +727,12 @@ function LoginPage({ onNavigate }) {
             </div>
 
             <input className="neu-input" type="password" placeholder="Minimum 8 characters" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} style={{ width: "100%", padding: "18px 22px", fontSize: 18, marginBottom: 18 }} />
+            {mode === "signup" && (
+              <>
+                <label className="input-label">Repeat Password</label>
+                <input className="neu-input" type="password" placeholder="Confirm your password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} style={{ width: "100%", padding: "18px 22px", fontSize: 18, marginBottom: 18 }} />
+              </>
+            )}
             <button className="neu-btn neu-btn-primary" onClick={submit} disabled={loading} style={{ width: "100%", padding: "20px", fontSize: 20, marginBottom: 28, marginTop: 36 }}>
               {loading ? "Please wait..." : mode === "login" ? "Log In" : "Create Account"}
             </button>
@@ -859,6 +871,7 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [widgetName, setWidgetName] = useState("");
 
   // 🟢 BULLETPROOF TIME CONVERTER
   const timeParts = videoTime.split(':').map(str => str.trim());
@@ -1042,11 +1055,24 @@ function ReminderModal({ action, onClose, isEdit = false, onSaved }) {
 
         {/* WIDGET TAB */}
         {tab === "widget" && (
-          <div className="neu-inset" style={{ padding: "30px 32px", borderRadius: 24 }}>
-            <div style={{ fontSize: 24, fontWeight: 700, color: t.text, marginBottom: 18 }}>Add to Home Screen</div>
-            <div style={{ fontSize: 19, color: t.subtext, lineHeight: 1.8 }}>
-              1. Open this app in your phone browser<br />2. Tap the Share button (iOS) or the menu (Android)<br />3. Select "Add to Home Screen"<br />4. Tap the shortcut anytime to see this action
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 30px" }}>
+
+            {/* The iOS/Android Helper Text */}
+            <div style={{ fontSize: 16, color: t.subtext, marginBottom: 20, fontStyle: "italic", fontWeight: 600 }}>
+              To change this, use iOS/Android app
             </div>
+
+            {/* The Display Box */}
+            <div className="neu-inset" style={{ padding: "40px 32px", borderRadius: 24, width: "100%", textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: t.subtext, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 12 }}>
+                Assigned Widget
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: t.accent }}>
+                {/* 🟢 Displays the name from your API, or a fallback if none is set yet */}
+                {widgetName ? widgetName : "Not Assigned"}
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -2301,9 +2327,11 @@ function TrophyRoomModal({ actions, streaks, onClose }) {
   const achievements = [
     { title: "First Step", desc: "Completed your first action.", unlocked: hasStarted, icon: "🌱" },
     { title: "Gaining Momentum", desc: "Reached a 7-day streak.", unlocked: maxStreak >= 7, icon: "🔥" },
-    { title: "Consistency", desc: "Reached a 30-day streak.", unlocked: maxStreak >= 30, icon: "⚡" },
-    { title: "Habit Former", desc: "Reached Level 2 on any action.", unlocked: hasLevel2, icon: "⭐" },
-    { title: "Mastery", desc: "Reached Level 5 on any action.", unlocked: hasLevel5, icon: "👑" },
+    { title: "Consistency Lvl 1", desc: "Reached a 30-day streak.", unlocked: maxStreak >= 30, icon: "⚡" },
+    { title: "Consistency Lvl 2", desc: "Reached a 60-day streak.", unlocked: maxStreak >= 60, icon: "⚡⚡" },
+    { title: "Consistency Lvl 3", desc: "Reached a 90-day streak.", unlocked: maxStreak >= 90, icon: "⚡⚡⚡" },
+    { title: "GOD Lvl", desc: "Reached a 180-day streak.", unlocked: maxStreak >= 180, icon: "🙇" },
+
   ]
 
   return (
@@ -2715,9 +2743,11 @@ function ReminderListCard({ action, rem, onEditTrigger }) {
 
   if (rem) {
     if (rem.reminder_type === "widget") {
-      nextString = "Click on widget"
-      box1Label = "Type"
-      box1Value = "By Widget"
+      nextString = "Tap on your home screen"
+      box1Label = "Widget"
+
+      // 🟢 FIXED: Grab the name from the backend, fallback if somehow missing
+      box1Value = rem.widget_name ? rem.widget_name : "Home Screen"
     } else if (rem.reminder_type === "location") {
       nextString = `When I ${rem.loc_condition || 'arrive'} at location`
       box1Label = "Location"
@@ -3676,7 +3706,7 @@ function EditProfilePage() {
 
 
 export default function App() {
-  const [themeName, setThemeNameState] = useState(() => localStorage.getItem("theme") || "calm")
+  const [themeName, setThemeNameState] = useState(() => localStorage.getItem("theme") || "dark")
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem("user")) } catch { return null } })
   const [token, setToken] = useState(() => localStorage.getItem("token") || null)
   const [page, setPage] = useState(null)

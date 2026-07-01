@@ -62,6 +62,78 @@ app.include_router(auth_router)
 
 
 
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+from fastapi import HTTPException
+
+# 🟢 Add this Data Model near your other models
+class GoogleLoginBody(BaseModel):
+    idToken: str
+
+# 🟢 Add this new Route next to your normal login route
+@app.post("/auth/google/verify")
+def verify_google_login(body: GoogleLoginBody):
+    # 1. Verify the token with Google's servers
+    try:
+        # ⚠️ PASTE THE EXACT SAME WEB CLIENT ID YOU USED IN ANDROID HERE:
+        CLIENT_ID = "YOUR_WEB_CLIENT_ID_FROM_GOOGLE_CLOUD.apps.googleusercontent.com"
+        
+        idinfo = id_token.verify_oauth2_token(
+            body.idToken, 
+            google_requests.Request(), 
+            CLIENT_ID
+        )
+        
+        # Extract the user's information from their Google account
+        email = idinfo['email']
+        name = idinfo.get('name', 'Google User')
+        
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid Google token")
+
+    # 2. Database Logic: Check if they already have an account
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("SELECT id, name, email, tier, theme FROM users WHERE email = %s", (email,))
+    user = cur.fetchone()
+    
+    if user:
+        # Account exists! Grab their info.
+        user_id, db_name, db_email, db_tier, db_theme = user
+    else:
+        # New user! Create a Free account for them seamlessly.
+        default_theme = "dark"
+        default_tier = "free"
+        
+        cur.execute(
+            """
+            INSERT INTO users (name, email, password_hash, tier, theme) 
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+            """,
+            (name, email, "google_sso_no_password", default_tier, default_theme)
+        )
+        user_id = cur.fetchone()[0]
+        db_name, db_email, db_theme = name, email, default_theme
+        conn.commit()
+        
+    cur.close()
+    conn.close()
+
+    # 3. Generate your standard MindActions JWT App token
+    # (Make sure 'create_access_token' matches the function you use in your normal login!)
+    access_token = create_access_token(data={"sub": str(user_id)})
+    
+    # 4. Return the exact same response format as your normal login!
+    return {
+        "token": access_token,
+        "user": {
+            "id": user_id,
+            "name": db_name,
+            "email": db_email,
+            "theme": db_theme
+        }
+    }
 
 
 # ─── 1. AUDIO GENERATION ENGINE ───
@@ -856,7 +928,15 @@ def get_reminder(action_id: int, user=Depends(get_current_user)):
     cur.execute("""
         SELECT r.reminder_type, r.target_hour, r.target_minute, r.target_ampm, 
                r.frequency_type, r.frequency_value, r.end_in_days, r.loc_condition, r.loc_lat, r.loc_lng,
-               ua.is_audio, ua.is_video, ua.spotify_uri, ua.spotify_name, ua.spotify_type, ua.video_start_time
+               ua.is_audio, ua.is_video, ua.spotify_uri, ua.spotify_name, ua.spotify_type, ua.video_start_time,
+               (
+                   SELECT w.name 
+                   FROM widget_items wi
+                   JOIN widgets w ON wi.widget_id = w.id
+                   WHERE wi.action_id = r.action_id
+                   ORDER BY wi.id DESC 
+                   LIMIT 1
+               ) AS widget_name
         FROM user_actions ua
         LEFT JOIN reminders r ON ua.action_id = r.action_id AND ua.user_id = r.user_id
         WHERE ua.user_id = %s AND ua.action_id = %s
@@ -880,13 +960,13 @@ def get_reminder(action_id: int, user=Depends(get_current_user)):
         "loc_condition": row[7],
         "loc_lat": row[8],
         "loc_lng": row[9],
-        # 🟢 Send the trigger data to the frontend
         "is_audio": row[10] or False,
         "is_video": row[11] or False,
         "spotify_uri": row[12],
         "spotify_name": row[13],
         "spotify_type": row[14],
-        "video_start_time": row[15] or 0
+        "video_start_time": row[15] or 0,
+        "widget_name": row[16] # 🟢 Ensures the edit dialog sees the widget!
     }
 
 @app.post("/profile/reminder")
@@ -993,11 +1073,20 @@ def get_all_reminders(user=Depends(get_current_user)):
     cur = conn.cursor()
     
     # 🟢 ADDED: r.end_in_days and r.created_at to the SELECT query
+    # 🟢 BULLETPROOF QUERY: Uses a subquery to prevent duplicate rows!
     cur.execute("""
         SELECT r.action_id, r.reminder_type, r.frequency_type, r.frequency_value, 
                r.target_hour, r.target_minute, r.target_ampm, a.text,
                r.loc_condition, r.loc_lat, r.loc_lng, 
-               r.end_in_days, r.created_at
+               r.end_in_days, r.created_at,
+               (
+                   SELECT w.name 
+                   FROM widget_items wi
+                   JOIN widgets w ON wi.widget_id = w.id
+                   WHERE wi.action_id = r.action_id
+                   ORDER BY wi.id DESC 
+                   LIMIT 1
+               ) AS widget_name
         FROM reminders r 
         JOIN actions a ON a.id = r.action_id 
         JOIN user_actions ua ON ua.action_id = r.action_id AND ua.user_id = r.user_id
@@ -1016,14 +1105,14 @@ def get_all_reminders(user=Depends(get_current_user)):
             if day == today - timedelta(days=i): streak += 1
             else: break
             
-        # 🟢 ADDED: Passed the new columns into the output dictionary
         results.append({
             "action_id": act_id, "reminder_type": r[1], "frequency_type": r[2], 
             "frequency_value": r[3], "target_hour": r[4], "target_minute": r[5], 
             "target_ampm": r[6], "text": r[7], "streak": streak,
             "loc_condition": r[8], "loc_lat": r[9], "loc_lng": r[10],
             "end_in_days": r[11], 
-            "created_at": str(r[12]) if r[12] else None # Converts datetime to string for JSON
+            "created_at": str(r[12]) if r[12] else None,
+            "widget_name": r[13] # 🟢 Safe, dynamic widget name passed to Android!
         })
         
     cur.close()
