@@ -42,6 +42,10 @@ import time
 from pydantic import BaseModel
 from typing import Optional, List
 
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
+from auth import make_jwt, get_db_connection
+
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 security = HTTPBearer()
@@ -70,12 +74,10 @@ from fastapi import HTTPException
 class GoogleLoginBody(BaseModel):
     idToken: str
 
-# 🟢 Add this new Route next to your normal login route
 @app.post("/auth/google/verify")
 def verify_google_login(body: GoogleLoginBody):
     # 1. Verify the token with Google's servers
     try:
-        # ⚠️ PASTE THE EXACT SAME WEB CLIENT ID YOU USED IN ANDROID HERE:
         CLIENT_ID = "708088590097-pt033tnunm65f7gstp240dgnb58avsnj.apps.googleusercontent.com"
         
         idinfo = id_token.verify_oauth2_token(
@@ -84,7 +86,6 @@ def verify_google_login(body: GoogleLoginBody):
             CLIENT_ID
         )
         
-        # Extract the user's information from their Google account
         email = idinfo['email']
         name = idinfo.get('name', 'Google User')
         
@@ -121,8 +122,7 @@ def verify_google_login(body: GoogleLoginBody):
     conn.close()
 
     # 3. Generate your standard MindActions JWT App token
-    # (Make sure 'create_access_token' matches the function you use in your normal login!)
-    access_token = create_access_token(data={"sub": str(user_id)})
+    access_token = make_jwt(user_id, db_email, db_name)
     
     # 4. Return the exact same response format as your normal login!
     return {
