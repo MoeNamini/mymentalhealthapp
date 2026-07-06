@@ -1706,7 +1706,7 @@ def get_user_settings(user=Depends(get_current_user)):
     row = cur.fetchone()
     cur.close()
     conn.close()
-    return {"closing_time": row[0] if row and row[0] else "20:00"}
+    return {"closing_time": row[0] if row and row[0] else "21:00"}
 
 @app.post("/profile/mood")
 def log_mood(body: MoodBody, user=Depends(get_current_user)):
@@ -1873,9 +1873,9 @@ def get_user_profile_data(user=Depends(get_current_user)):
     cur = conn.cursor()
     
     try:
-        # 🟢 ADDED: custom_theme to the database query
+        # 🟢 ADDED: closing_time to the end of the SQL query
         cur.execute(
-            "SELECT name, email, tier, about_me, gcal_access_token, spotify_access_token, custom_theme FROM users WHERE id = %s;", 
+            "SELECT name, email, tier, about_me, gcal_access_token, spotify_access_token, custom_theme, closing_time FROM users WHERE id = %s;", 
             (int(user["sub"]),)
         )
         row = cur.fetchone()
@@ -1898,7 +1898,8 @@ def get_user_profile_data(user=Depends(get_current_user)):
         "about_me": row[3] or "",
         "gcal_linked": bool(row[4]),
         "spotify_linked": bool(row[5]),
-        "custom_theme": row[6] if row[6] else None # 🟢 Hands the saved theme back to React!
+        "custom_theme": row[6] if row[6] else None,
+        "closing_time": row[7] if (row[7] and row[7].strip()) else "21:00"
     }
 
 @app.post("/spotify/play-reminder")

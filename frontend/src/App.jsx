@@ -750,17 +750,19 @@ function LoginPage({ onNavigate }) {
 
             {/* ─── THIRD-PARTY OAUTH BUTTON PROVIDERS ─── */}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* 🟢 FIXED: Hardcode the absolute URL to your Render backend so Vercel doesn't get confused! */}
-              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/api/auth/google"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                Continue with Google
+
+              {/* 🟢 FIXED: Removed the /api/ prefix from the URL */}
+              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/auth/google"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                🌐 Continue with Google
               </button>
 
-              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/api/auth/twitter"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                Continue with X (Twitter)
+              {/* 🟢 FIXED: Do the same for X and LinkedIn just in case! */}
+              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/auth/twitter"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                𝕏 Continue with X (Twitter)
               </button>
 
-              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/api/auth/linkedin"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                Continue with LinkedIn
+              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/auth/linkedin"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                👔 Continue with LinkedIn
               </button>
             </div>
           </>
@@ -2483,7 +2485,20 @@ function ProfilePage() {
       <div style={{ padding: "20px 24px 90px" }}>
         {isProfileLoading && activeActions.length === 0 && <BreathingLoader />}
 
-        {!isProfileLoading && profileTab === "Actions" && activeActions.length === 0 && <div style={{ textAlign: "center", padding: "70px 0", color: t.subtext, fontWeight: 600, fontSize: 22 }}>You have no pending actions.</div>}
+        {!isProfileLoading && profileTab === "Actions" && activeActions.length === 0 && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, padding: "70px 0", width: "100%" }}>
+            <div style={{ color: t.subtext, fontWeight: 600, fontSize: 22 }}>
+              You have no pending actions.
+            </div>
+            <button
+              className="neu-btn"
+              onClick={() => setPage("search")} // Uses your global routing callback to switch views instantly
+              style={{ padding: "16px 28px", fontSize: 18, color: t.accent, fontWeight: 700 }}
+            >
+              Add your first Action
+            </button>
+          </div>
+        )}
         {profileTab === "Actions" && activeActions.length > 0 && (
           <div className="action-grid">
             {activeActions.map(a => <ProfileActionCard key={a.id} a={a} isCompletedTab={false} streakData={streaks[a.id]} onViewReport={setViewReport} onCompleteTrigger={(act) => setCompletionFlow({ action: act, step: 'difficulty', intent: 'finish' })} />)}
@@ -3251,7 +3266,8 @@ function UpgradeModal({ currentTier, onClose, onUpgrade }) {
     if (currentTier === selectedTier) return
     setSaving(true)
     try {
-      await axios.post("/api/profile/upgrade", { tier: selectedTier })
+      // 🟢 FIXED: Removed /api prefix to match your actual Python backend routes
+      await axios.post("https://mindactions-api.onrender.com/profile/upgrade", { tier: selectedTier })
       onUpgrade(selectedTier)
       onClose()
     } catch (e) {
@@ -3261,10 +3277,48 @@ function UpgradeModal({ currentTier, onClose, onUpgrade }) {
     }
   }
 
+  // 🟢 FIXED: Accurate prices and features reflecting your actual backend logic
   const tiers = [
-    { id: "free", name: "Free Tier", price: "$0", desc: "For getting started.", features: ["3 Active Actions", "Basic Reminders", "7-Day Mood History"] },
-    { id: "paid", name: "Paid Tier", price: "$4.99/mo", desc: "For serious habit building.", features: ["Unlimited Actions", "Friction Predictions", "30-Day Mood History", "Custom Actions"] },
-    { id: "pro", name: "Pro Tier", price: "$9.99/mo", desc: "The ultimate wellness coach.", features: ["Everything in Paid", "True AI Coach Insights", "Unlimited Mood History", "Priority Support"] }
+    {
+      id: "free",
+      name: "Free Tier",
+      price: "$0",
+      desc: "For getting started.",
+      features: [
+        "3 Ai Search - more with ads",
+        "Ai Analysis with ads",
+        "Custom theme with ads"
+      ]
+    },
+    {
+      id: "paid",
+      name: "Paid Tier",
+      price: "$2.99/mo",
+      desc: "For serious habit building.",
+      features: [
+        "10 Ai Search",
+        "Weekly Ai Analysis",
+        "3 Custom theme",
+        "5 Custom Widgets",
+        "Media enabled notifications",
+        "Spotify and Google Calendar",
+        "Voice Journaling"
+      ]
+    },
+    {
+      id: "pro",
+      name: "Pro Tier",
+      price: "$9.99/mo",
+      desc: "The ultimate wellness coach.",
+      features: [
+        "Ai Coach - conversational",
+        "Unlimited Ai Analysis",
+        "Unlimited Ai Search",
+        "Unlimited Custom Widgets",
+        "10 Custom theme",
+        "Real-time Ai Assisted Journaling"
+      ]
+    }
   ]
 
   return (
@@ -3272,7 +3326,7 @@ function UpgradeModal({ currentTier, onClose, onUpgrade }) {
       <div className="neu-card" style={{ padding: "50px 40px", maxWidth: 900, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
         <div style={{ textAlign: "center", marginBottom: 44 }}>
           <div style={{ fontSize: 32, fontWeight: 800, color: t.text }}>Upgrade Your MindActions</div>
-          <div style={{ fontSize: 18, color: t.subtext, marginTop: 8 }}>Unlock advanced analytics, AI coaching, and unlimited actions.</div>
+          <div style={{ fontSize: 18, color: t.subtext, marginTop: 8 }}>Unlock ad-free AI coaching, deep analytics, and unlimited actions.</div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 24, marginBottom: 44 }}>
@@ -3313,10 +3367,20 @@ function UpgradeModal({ currentTier, onClose, onUpgrade }) {
   )
 }
 
+const saveClosingTime = async () => {
+  try {
+    // Sends the clean 24-hour time text safely straight to api.py!
+    const res = await axios.put("/api/profile/closing_time", { closing_time: closingTime });
+    if (res.data.success) {
+      setShowClosingTimeModal(false);
+      // Optional: alert user or toast "Time updated successfully!"
+    }
+  } catch (err) {
+    console.error("Failed to update profile closing time configuration:", err);
+  }
+};
 
-
-// --------------------
-
+// -------------------- EditProfilePage 
 function EditProfilePage() {
   const { t, user, setUser, setPage, logout } = useApp()
 
@@ -3701,7 +3765,22 @@ function EditProfilePage() {
         )
       }
 
-    </div >
+      {/* ─── 🟢 ADD THIS MODAL RENDER BLOCK LOW DOWN IN YOUR JSX ─── */}
+      {showClosingTimeModal && (
+        <ClosingTimeModal
+          initialTime={closingTime} // 💡 Changed from closing_time to closingTime
+          onClose={() => setShowClosingTimeModal(false)}
+          onSave={(formattedTime) => {
+            // This catches the clean 24h string and updates your state
+            if (typeof setClosingTime === "function") {
+              setClosingTime(formattedTime);
+            } else if (typeof setClosing_time === "function") {
+              setClosing_time(formattedTime);
+            }
+          }}
+        />
+      )}
+    </div>
   )
 }
 
