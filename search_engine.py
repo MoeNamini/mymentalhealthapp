@@ -1,9 +1,12 @@
 import os
 import psycopg2
 import requests
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # --- Ranking weights ---
 WEIGHT_SEMANTIC = 0.50  
@@ -16,11 +19,15 @@ DEFAULT_RESULT_LIMIT = 10
 
 def get_db_connection():
     database_url = os.getenv("DATABASE_URL")
+    
+    # If DATABASE_URL exists (like on Render), use it immediately
     if database_url:
         return psycopg2.connect(database_url)
+        
+    # 🟢 Clean fallback configuration strictly for local Docker container mapping
     return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
+        host=os.getenv("DB_HOST", "localhost"),
+        port=os.getenv("DB_PORT", "5432"),
         dbname=os.getenv("DB_NAME"),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
@@ -32,7 +39,7 @@ def embed_query(query_text):
         
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("❌ CRITICAL: GEMINI_API_KEY is missing!")
+        logger.error("CRITICAL: GEMINI_API_KEY is missing from environment variables!")
         return []
 
     model_name = "models/gemini-embedding-001"
@@ -50,7 +57,8 @@ def embed_query(query_text):
         response.raise_for_status() 
         return response.json()['embedding']['values']
     except Exception as e:
-        print(f"❌ Gemini Vector Search Error: {e}")
+        # 🟢 FIXED: logger.error capturing full stack traces (exc_info=True)
+        logger.error(f"Gemini Vector Search Error: {e}", exc_info=True)
         return []
 
 def fetch_candidates(cur, query_vector, pool_size, category_filter=None):

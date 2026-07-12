@@ -654,6 +654,7 @@ function CatTag({ category }) {
 
 
 // ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
+// ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
 function LoginPage({ onNavigate }) {
   const { t, setUser, setToken } = useApp()
   const [mode, setMode] = useState("login")
@@ -689,6 +690,11 @@ function LoginPage({ onNavigate }) {
     } finally { setLoading(false) }
   }
 
+  // 🟢 FIXED: Dynamically matches your execution environment automatically
+  const backendUrl = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:8000"
+    : "https://mindactions-api.onrender.com";
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div className="neu-card" style={{ padding: "50px 46px", width: "100%", maxWidth: 460, borderRadius: 24 }}>
@@ -702,7 +708,6 @@ function LoginPage({ onNavigate }) {
 
         {mode === "forgot" ? (
           <>
-            <div style={{ fontSize: 16, color: t.subtext, marginBottom: 18, textAlign: "center" }}>Enter your email to receive a reset link.</div>
             <label className="input-label">Email</label>
             <input className="neu-input" type="email" placeholder="you@email.com" value={email} onChange={e => setEmail(e.target.value)} style={{ width: "100%", padding: "18px 22px", fontSize: 18, marginBottom: 18 }} />
             <button className="neu-btn neu-btn-primary" onClick={() => { setError("Reset link sent to your email!"); setEmail(""); }} style={{ width: "100%", padding: "20px", fontSize: 20, marginBottom: 28, marginTop: 16 }}>Send Reset Link</button>
@@ -736,12 +741,10 @@ function LoginPage({ onNavigate }) {
             <button className="neu-btn neu-btn-primary" onClick={submit} disabled={loading} style={{ width: "100%", padding: "20px", fontSize: 20, marginBottom: 28, marginTop: 36 }}>
               {loading ? "Please wait..." : mode === "login" ? "Log In" : "Create Account"}
             </button>
-            LoginPage
             <div style={{ textAlign: "center", marginTop: 28, fontSize: 18, color: t.subtext }}>
               {mode === "login" ? "No account?" : "Already have an account?"}
               <span onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError("") }} style={{ color: t.accent, fontWeight: 700, cursor: "pointer", marginLeft: 8 }}>{mode === "login" ? "Sign up" : "Log in"}</span>
             </div>
-            {/* ─── TRADITIONAL NEUMORPHIC OOR DIVIDER ─── */}
             <div style={{ display: "flex", alignItems: "center", margin: "24px 0", gap: 16 }}>
               <div style={{ flex: 1, height: 1, background: t.shadowDark, opacity: 0.15 }} />
               <span style={{ fontSize: 14, color: t.subtext, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>or</span>
@@ -750,18 +753,16 @@ function LoginPage({ onNavigate }) {
 
             {/* ─── THIRD-PARTY OAUTH BUTTON PROVIDERS ─── */}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-              {/* 🟢 FIXED: Removed the /api/ prefix from the URL */}
-              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/auth/google"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              {/* 🟢 FIXED: Buttons now explicitly use the dynamic backendUrl string wrapper */}
+              <button onClick={() => window.location.href = `${backendUrl}/auth/google`} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
                 🌐 Continue with Google
               </button>
 
-              {/* 🟢 FIXED: Do the same for X and LinkedIn just in case! */}
-              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/auth/twitter"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              <button onClick={() => window.location.href = `${backendUrl}/auth/twitter`} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
                 𝕏 Continue with X (Twitter)
               </button>
 
-              <button onClick={() => window.location.href = "https://mindactions-api.onrender.com/auth/linkedin"} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              <button onClick={() => window.location.href = `${backendUrl}/auth/linkedin`} className="neu-btn" style={{ width: "100%", padding: "14px", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
                 👔 Continue with LinkedIn
               </button>
             </div>
@@ -773,20 +774,65 @@ function LoginPage({ onNavigate }) {
 }
 
 function AuthCallback({ onNavigate }) {
-  const { t, setUser, setToken } = useApp()
+  const { setToken, setUser } = useContext(AppCtx);
+
   useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get("token")
-    if (!token) { onNavigate("login"); return }
-    setupAxios(token)
-    axios.get("/api/auth/me").then(res => {
-      localStorage.setItem("token", token)
-      localStorage.setItem("user", JSON.stringify(res.data))
-      setToken(token)
-      setUser(res.data)
-      onNavigate("profile")
-    }).catch(() => onNavigate("login"))
-  }, [])
-  return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><p style={{ color: useApp().t.subtext, fontSize: 20 }}>Signing you in...</p></div>
+    const params = new URLSearchParams(window.location.search);
+    const tokenFromUrl = params.get("token");
+
+    if (tokenFromUrl) {
+      localStorage.setItem("token", tokenFromUrl);
+      axios.defaults.headers.common["Authorization"] = `Bearer ${tokenFromUrl}`;
+
+      // 🟢 FIXED: Fetch from profile/me to get your tier and theme,
+      // and use inline headers just to be absolutely safe.
+      axios.get("/api/profile/me", {
+        headers: {
+          Authorization: `Bearer ${tokenFromUrl}`
+        }
+      })
+        .then((res) => {
+          // Map the profile data safely to the user object
+          const userData = {
+            id: res.data.id, // Fallback if needed
+            name: res.data.username,
+            email: res.data.email,
+            tier: res.data.tier,
+            custom_theme: res.data.custom_theme
+          };
+          localStorage.setItem("user", JSON.stringify(userData));
+
+          // Clear the code out of the browser bar safely on success
+          window.history.replaceState({}, document.title, "/");
+
+          if (setToken) setToken(tokenFromUrl);
+          if (setUser) setUser(userData);
+          onNavigate("profile");
+        })
+        .catch((err) => {
+          console.error("Callback authentication failed:", err);
+          localStorage.removeItem("token");
+
+          // 🟢 THE MAGIC FIX: Clear the broken URL even if it fails, 
+          // so you don't get trapped in a refresh loop ever again!
+          window.history.replaceState({}, document.title, "/");
+          onNavigate("login");
+        });
+    } else {
+      window.history.replaceState({}, document.title, "/");
+      onNavigate("login");
+    }
+  }, []);
+
+  return (
+    <div className="glass-modal">
+      <div className="neu-card" style={{ padding: "40px", textAlign: "center" }}>
+        <div className="skeleton-breathe" style={{ fontSize: "24px", fontWeight: "bold" }}>
+          Securing your wellness session...
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── SHARE & NOTIFICATION MODALS ──────────────────────────────────────────────
@@ -3784,11 +3830,15 @@ function EditProfilePage() {
   )
 }
 
+const savedToken = localStorage.getItem("token") || null;
+if (savedToken) {
+  axios.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
+}
 
 export default function App() {
   const [themeName, setThemeNameState] = useState(() => localStorage.getItem("theme") || "dark")
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem("user")) } catch { return null } })
-  const [token, setToken] = useState(() => localStorage.getItem("token") || null)
+  const [token, setToken] = useState(savedToken)
   const [page, setPage] = useState(null)
 
   const [activeNotification, setActiveNotification] = useState(null)

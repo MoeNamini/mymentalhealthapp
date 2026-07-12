@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg16 # This version has pgvector pre-installed
+    image: pgvector/pgvector:pg18
     container_name: mental_care_db
     environment:
       POSTGRES_DB: mental_health_app
@@ -9,5 +9,5 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data:/var/lib/postgresql/data # This saves your data even if you turn off the PC
+      - ./data:/var/lib/postgresql
     restart: unless-stopped
