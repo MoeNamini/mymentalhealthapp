@@ -288,7 +288,13 @@ def run_processor():
                 total_failed += 1
 
         conn.commit()  # commit all actions for this transcript at once
-        print(f"  ✅ Saved {saved_this_video} actions\n")
+
+        # Delete the transcript now that extraction succeeded, we no longer
+        # need the raw text once its Actions are saved
+        cur.execute("DELETE FROM transcripts WHERE id = %s", (transcript_id,))
+        conn.commit()
+
+        print(f"  ✅ Saved {saved_this_video} actions, transcript deleted\n")
 
         # Small pause between requests to stay within Gemini's rate limits
         if i < len(transcripts):

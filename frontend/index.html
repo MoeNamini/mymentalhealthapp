@@ -11,20 +11,23 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="MindActions" />
 
-  <!-- PWA manifest — makes the app installable -->
+  <!-- PWA manifest -->
   <link rel="manifest" href="/manifest.json" />
 
-  <!-- Apple touch icon — for iOS home screen -->
-  <link rel="apple-touch-icon" href="/icon-192.png" />
-
-  <!-- Google AdSense Script (Replace the client ID with your real one later!) -->
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1921983916872725"
-    crossorigin="anonymous"></script>
+  <!-- favicons -->
+  <link rel="icon" type="image/png" href="/MindActions_logo.png?v=2" />
+  <link rel="apple-touch-icon" href="/MindActions_logo.png?v=2" />
 
   <title>MindActions</title>
+
+  <!-- Paddle v2 Engine -->
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+
 </head>
 
 <body>
+  <!-- 🟢 AppLixir Ad Overlay Container (Only opens when "Watch Ad" is clicked) -->
+  <div id="applixir_waning_div"></div>
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>
