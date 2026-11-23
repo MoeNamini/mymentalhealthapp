@@ -16,3 +16,4 @@ bcrypt
 httpx
 google-genai
 resend
+slowapi
